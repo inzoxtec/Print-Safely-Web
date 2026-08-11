@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { collection, doc, setDoc } from "firebase/firestore";
+import { collection, doc, setDoc, query, where, getDocs, deleteDoc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { compressImage, encryptFile, chunkString } from "@/lib/crypto";
@@ -21,7 +21,7 @@ export default function UploadPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Premium Testing Flag (Toggle to true to test premium accounts)
+  // Premium Status (Synced from Firestore)
   const [isPremium, setIsPremium] = useState(false);
   const maxFiles = isPremium ? 20 : 5;
 
@@ -29,11 +29,55 @@ export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
 
+  // 1. Sync premium status from Firestore users collection
+  useEffect(() => {
+    if (!user) return;
+    const fetchUserPlan = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          const activePlans = ["premium", "starter", "pro", "advanced"];
+          if (activePlans.includes(userData.plan)) {
+            setIsPremium(true);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to read user plan:", err);
+      }
+    };
+    fetchUserPlan();
+  }, [user]);
+
+  // 2. Load forwarded files from sessionStorage (Works for all PDF/Image tools)
+  useEffect(() => {
+    const forwardedName = sessionStorage.getItem("safelyprint_forward_file_name");
+    const forwardedData = sessionStorage.getItem("safelyprint_forward_file_data");
+    const forwardedType = sessionStorage.getItem("safelyprint_forward_file_type");
+
+    if (forwardedName && forwardedData) {
+      fetch(forwardedData)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const file = new File([blob], forwardedName, { type: forwardedType || "application/pdf" });
+          setFiles([file]);
+        })
+        .catch((err) => console.error("Forward recovery failed:", err));
+
+      // Clear session keys
+      sessionStorage.removeItem("safelyprint_forward_file_name");
+      sessionStorage.removeItem("safelyprint_forward_file_data");
+      sessionStorage.removeItem("safelyprint_forward_file_type");
+    }
+  }, []);
+
   // Configuration States
   const [expirationHours, setExpirationHours] = useState("24");
   const [printLimit, setPrintLimit] = useState(1);
   const [usePin, setUsePin] = useState(false);
   const [pinCode, setPinCode] = useState("");
+  const [useBlur, setUseBlur] = useState(false); // Screen Blur Preference
 
   // Upload/Status States
   const [uploading, setUploading] = useState(false);
@@ -45,14 +89,71 @@ export default function UploadPage() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Redirect if not logged in
+  // 1. Redirect if not logged in
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
 
-  // Drag & Drop handlers
+  // 2. Lazy Client-side Expiry Clean-up
+  useEffect(() => {
+    if (!user) return;
+
+    const runExpiredCleanup = async () => {
+      try {
+        const now = new Date();
+        const q = query(
+          collection(db, "documents"),
+          where("ownerUid", "==", user.uid),
+          where("status", "==", "active")
+        );
+
+        const querySnapshot = await getDocs(q);
+        
+        querySnapshot.forEach(async (documentDoc) => {
+          const data = documentDoc.data();
+          const expiresAt = data.expiresAt?.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
+
+          if (now > expiresAt) {
+            const docId = data.docId;
+            console.log(`Cleaning up expired print link: ${docId}`);
+
+            // Delete all chunk documents for this expired package
+            const deletePromises: Promise<any>[] = [];
+            data.files.forEach((file: any, fileIndex: number) => {
+              for (let chunkIndex = 0; chunkIndex < file.totalChunks; chunkIndex++) {
+                const chunkRef = doc(db, "documents", docId, "chunks", `${fileIndex}_${chunkIndex}`);
+                deletePromises.push(deleteDoc(chunkRef));
+              }
+            });
+            await Promise.all(deletePromises);
+
+            // Erase keys and set status to expired
+            const clearedFiles = data.files.map((file: any) => ({
+              name: file.name,
+              type: file.type,
+              totalChunks: 0,
+              keyString: "",
+              ivString: ""
+            }));
+
+            await setDoc(doc(db, "documents", docId), {
+              ...data,
+              status: "expired",
+              files: clearedFiles
+            }, { merge: true });
+          }
+        });
+      } catch (err) {
+        console.error("Lazy cleanup error: ", err);
+      }
+    };
+
+    runExpiredCleanup();
+  }, [user]);
+
+  // File Drag & Drop handlers
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -108,7 +209,7 @@ export default function UploadPage() {
 
     if (files.length + validFiles.length > maxFiles) {
       if (!isPremium) {
-        setShowUpgradePrompt(true);
+        setShowUpgradePrompt(true); // Trigger upgrade promotion banner
       } else {
         setError(`Upload limit reached! You can upload a maximum of ${maxFiles} files at once.`);
       }
@@ -123,7 +224,7 @@ export default function UploadPage() {
     setShowUpgradePrompt(false);
   };
 
-  // 1. Process & Upload Chunks to Firestore
+  // Process & Chunked Upload to Firestore Logic
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (files.length === 0 || !user) return;
@@ -136,8 +237,7 @@ export default function UploadPage() {
     const docId = doc(collection(db, "documents")).id;
 
     try {
-      // Step 1: Calculate total chunks across all files to track progress accurately
-      let totalExpectedChunks = 0;
+      // Step 1: Client-side Image compression for files > 1.5MB
       const processedFilesBlobs: Blob[] = [];
 
       setOptimizing(true);
@@ -146,7 +246,6 @@ export default function UploadPage() {
         const currentFile = files[i];
         let finalBlob: Blob = currentFile;
 
-        // Perform Client-side image compression if the image is > 1.5MB
         if (currentFile.type.startsWith("image/") && currentFile.size > 1.5 * 1024 * 1024) {
           finalBlob = await compressImage(currentFile);
         }
@@ -154,7 +253,7 @@ export default function UploadPage() {
       }
       setOptimizing(false);
 
-      // Step 2: Encrypt and upload chunks
+      // Step 2: Encrypt and upload chunks to Firestore subcollection
       let chunksUploadedSoFar = 0;
       
       for (let fileIndex = 0; fileIndex < processedFilesBlobs.length; fileIndex++) {
@@ -162,14 +261,12 @@ export default function UploadPage() {
         const fileBlob = processedFilesBlobs[fileIndex];
         const originalFile = files[fileIndex];
 
-        // Encrypt locally using AES-256
+        // Encrypt locally inside JS using AES-256
         const { encryptedDataStr, keyString, ivString } = await encryptFile(fileBlob);
 
-        // Split base64 encrypted data into ~900KB segments
+        // Split base64 encrypted data string into ~900KB chunks
         const fileChunks = chunkString(encryptedDataStr);
-        totalExpectedChunks += fileChunks.length;
 
-        // Upload chunks sequentially to Firestore subcollection
         for (let chunkIndex = 0; chunkIndex < fileChunks.length; chunkIndex++) {
           const chunkRef = doc(db, "documents", docId, "chunks", `${fileIndex}_${chunkIndex}`);
           
@@ -180,11 +277,10 @@ export default function UploadPage() {
           });
 
           chunksUploadedSoFar++;
-          // Estimate global progress percentage
-          setProgress(Math.round((chunksUploadedSoFar / (files.length * 2)) * 100)); // Rough estimation before knowing final chunk counts
+          setProgress(Math.round((chunksUploadedSoFar / (files.length * 2)) * 100));
         }
 
-        // Add file detail to metadata array
+        // Keep metadata parameters (Key, IV vectors, chunk counts)
         filesMetadataArray.push({
           name: originalFile.name,
           type: originalFile.type,
@@ -196,9 +292,9 @@ export default function UploadPage() {
 
       // Calculate expiration date
       const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + parseInt(expirationHours));
+      expiresAt.setMinutes(expiresAt.getMinutes() + Math.round(parseFloat(expirationHours) * 60));
 
-      // Save complete package metadata document to Firestore root collection
+      // Save complete metadata document to Firestore root collection
       const docRef = doc(db, "documents", docId);
       await setDoc(docRef, {
         docId: docId,
@@ -209,6 +305,7 @@ export default function UploadPage() {
         printLimit: printLimit,
         printCount: 0,
         pinCode: usePin && pinCode ? pinCode : null,
+        blurEnabled: useBlur, // Save the blur preference
         status: "active",
       });
 
@@ -235,6 +332,7 @@ export default function UploadPage() {
     setGeneratedLink("");
     setPinCode("");
     setUsePin(false);
+    setUseBlur(false);
     setProgress(0);
     setError("");
     setShowUpgradePrompt(false);
@@ -292,40 +390,62 @@ export default function UploadPage() {
 
         {/* Error Alert */}
         {error && (
-          <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm">
+          <div className="bg-red-50 dark:bg-red-955/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm">
             {error}
           </div>
         )}
 
-        {/* Premium Upgrade Promotion Banner */}
+        {/* NEW: Beautified India-monetized Upgrade Banner */}
         {showUpgradePrompt && (
-          <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 dark:border-amber-500/30 p-4 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="flex gap-2.5 items-start">
-              <span className="text-xl">💎</span>
+          <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 dark:border-amber-500/30 p-5 rounded-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex gap-3 items-start">
+              <span className="text-2xl mt-0.5">🚀</span>
               <div>
                 <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
-                  Need to upload more documents?
+                  Upload Limit Reached (Max 5 Documents)
                 </p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                  Free accounts can upload up to 5 documents per link. Upgrade to Premium to link up to 20 documents, bypass size limits, and access advanced PDF editors.
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  Free links are capped at 5 documents. Choose a payment option below to increase your file limit to 20 files instantly.
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Link 
-                href="/pricing"
-                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition shadow-sm cursor-pointer"
-              >
-                Upgrade to Premium
-              </Link>
+
+            {/* Microtransaction & Subscription cards */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="bg-white/40 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-amber-500/10 text-center">
+                <span className="text-[9px] uppercase font-extrabold text-amber-500 tracking-wider block">One-Time Pass</span>
+                <span className="text-lg font-black text-zinc-900 dark:text-white mt-0.5 block">₹9</span>
+                <span className="text-[9px] text-zinc-500 block leading-tight mt-0.5">Unlock 20 files for this link</span>
+              </div>
+              <div className="bg-white/40 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-amber-500/10 text-center">
+                <span className="text-[9px] uppercase font-extrabold text-blue-500 tracking-wider block">Premium Monthly</span>
+                <span className="text-lg font-black text-zinc-900 dark:text-white mt-0.5 block">₹99<span className="text-[10px] font-normal text-zinc-500">/mo</span></span>
+                <span className="text-[9px] text-zinc-500 block leading-tight mt-0.5">Unlimited links & pro PDF tools</span>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setShowUpgradePrompt(false)}
-                className="px-3.5 py-1.5 bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded-lg text-xs font-semibold transition cursor-pointer"
+                onClick={() => alert("UPI Payment gateway will integrate here: Top-up ₹9")}
+                className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer text-center"
               >
-                Dismiss
+                ₹9 Quick Top-Up
               </button>
+              <Link 
+                href="/pricing"
+                className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-750 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer text-center"
+              >
+                View Plans (from ₹99)
+              </Link>
             </div>
+            <button
+              type="button"
+              onClick={() => setShowUpgradePrompt(false)}
+              className="w-full py-1 text-[10px] font-semibold text-zinc-500 dark:text-zinc-400 hover:underline cursor-pointer text-center"
+            >
+              Cancel & keep 5 files
+            </button>
           </div>
         )}
 
@@ -498,6 +618,8 @@ export default function UploadPage() {
                   onChange={(e) => setExpirationHours(e.target.value)}
                   className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 >
+                  <option value="0.0166">1 Minute (Testing)</option>
+                  <option value="0.0833">5 Minutes (Testing)</option>
                   <option value="1">1 Hour</option>
                   <option value="3">3 Hours</option>
                   <option value="6">6 Hours</option>
@@ -523,15 +645,20 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {/* Optional Security PIN */}
-            <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-4 space-y-3">
+            {/* Security configuration options (PIN & Blur Previews) */}
+            <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-4 space-y-4">
+              
+              {/* Optional Security PIN */}
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Enable Link Security PIN</span>
+                <div>
+                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block">Enable Link Security PIN</span>
+                  <span className="text-[10px] text-zinc-400">Require a passcode to view files</span>
+                </div>
                 <input
                   type="checkbox"
                   checked={usePin}
                   onChange={(e) => setUsePin(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 rounded border-zinc-300 focus:ring-blue-500"
+                  className="h-4 w-4 text-blue-600 rounded border-zinc-300 focus:ring-blue-500 cursor-pointer"
                 />
               </div>
 
@@ -545,6 +672,20 @@ export default function UploadPage() {
                   className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                 />
               )}
+
+              {/* Blur Document Previews Checkbox */}
+              <div className="flex items-center justify-between border-t border-zinc-200/30 pt-4">
+                <div>
+                  <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block">Blur Document Previews</span>
+                  <span className="text-[10px] text-zinc-400">Blurs document text on screen to block screenshotting</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={useBlur}
+                  onChange={(e) => setUseBlur(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 rounded border-zinc-300 focus:ring-blue-500 cursor-pointer"
+                />
+              </div>
             </div>
 
             {/* Upload Button or Progress Indicator */}
