@@ -1,4 +1,5 @@
 /* app/globals.css */
+@import 'remixicon/fonts/remixicon.css';
 @import "tailwindcss";
 
 /* Define custom dark-mode variant for Tailwind v4 */

@@ -204,22 +204,43 @@ export default function Header() {
           )}
 
           {user ? (
-            <div className="flex items-center gap-4">
-              <span className="hidden sm:inline-block text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                Hi, {user.displayName || user.email?.split("@")[0]}
-              </span>
-              <Link 
-                href="/upload" 
-                className="text-sm font-semibold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white px-4 py-2 rounded-xl transition"
-              >
-                Dashboard
-              </Link>
+            <div className="relative">
               <button
-                onClick={logout}
-                className="text-sm font-semibold text-zinc-500 hover:text-red-500 dark:text-zinc-400 dark:hover:text-red-400 transition cursor-pointer"
+                onClick={() => toggleDropdown("user")}
+                className="flex items-center justify-center h-9 w-9 rounded-full bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 cursor-pointer transition"
+                aria-label="User Menu"
               >
-                Sign Out
+                <i className="ri-user-3-line text-base"></i>
               </button>
+
+              {activeDropdown === "user" && (
+                <div className="absolute right-0 mt-2 w-48 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl p-2.5 space-y-1 z-50 animate-in fade-in slide-in-from-top-2 duration-150 text-left">
+                  <div className="px-3 py-2 border-b border-zinc-150 dark:border-zinc-800 mb-1">
+                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-wider">Signed In As</p>
+                    <p className="text-xs font-bold text-zinc-900 dark:text-white truncate mt-0.5" title={user.email || ""}>
+                      {user.displayName || user.email?.split("@")[0]}
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/dashboard"
+                    onClick={() => setActiveDropdown(null)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
+                  >
+                    <i className="ri-dashboard-line"></i> Dashboard
+                  </Link>
+
+                  <button
+                    onClick={() => {
+                      setActiveDropdown(null);
+                      logout();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-red-600 hover:bg-red-500/10 transition text-left cursor-pointer"
+                  >
+                    <i className="ri-logout-box-r-line"></i> Sign Out
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <>
