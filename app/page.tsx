@@ -24,7 +24,7 @@ export default function HomePage() {
     // Organize Category
     {
       name: "Merge PDF",
-      href: "/tools/merge",
+      href: "/tools/merge-pdf",
       desc: "Combine multiple PDF files into one document in any page order.",
       category: "Organize",
       color: "bg-blue-500/10 text-blue-600",
@@ -32,7 +32,7 @@ export default function HomePage() {
     },
     {
       name: "Split PDF",
-      href: "/tools/split",
+      href: "/tools/split-pdf",
       desc: "Extract specific page ranges or split each page into a separate PDF file.",
       category: "Organize",
       color: "bg-indigo-500/10 text-indigo-600",
@@ -40,7 +40,7 @@ export default function HomePage() {
     },
     {
       name: "Reorder Pages",
-      href: "/tools/reorder",
+      href: "/tools/reorder-pdf",
       desc: "Drag-and-drop page thumbnails to sort and rearrange pages visually.",
       category: "Organize",
       color: "bg-violet-500/10 text-violet-600",
@@ -48,7 +48,7 @@ export default function HomePage() {
     },
     {
       name: "Delete Pages",
-      href: "/tools/delete",
+      href: "/tools/delete-pdf",
       desc: "Remove unwanted pages from your document using a thumbnail grid.",
       category: "Organize",
       color: "bg-purple-500/10 text-purple-600",
@@ -74,7 +74,7 @@ export default function HomePage() {
     },
     {
       name: "Docx to PDF",
-      href: "/tools/word-to-pdf",
+      href: "/tools/doc-to-pdf",
       desc: "Convert Microsoft Word (.docx) documents into standard PDF format.",
       category: "Convert",
       badge: "Beta",

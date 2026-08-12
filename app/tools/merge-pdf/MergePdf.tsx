@@ -17,7 +17,7 @@ interface FileItem {
   pages: number;
 }
 
-export default function MergePdfPage() {
+export default function MergePdf() {
   const { user } = useAuth();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [merging, setMerging] = useState(false);
