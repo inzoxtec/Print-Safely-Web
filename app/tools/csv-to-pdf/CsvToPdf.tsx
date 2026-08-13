@@ -1,4 +1,4 @@
-// app/tools/excel-to-pdf/ExcelToPdf.tsx
+// app/tools/csv-to-pdf/CsvToPdf.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -9,7 +9,7 @@ import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-export default function ExcelToPdf() {
+export default function CsvToPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   
@@ -59,8 +59,7 @@ export default function ExcelToPdf() {
   };
 
   const loadAllEngines = async () => {
-    setProgressMsg("Loading Excel extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
+    setProgressMsg("Loading rendering engines...");
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
   };
 
@@ -69,14 +68,37 @@ export default function ExcelToPdf() {
     const selectedFile = e.target.files[0];
     
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
-    if (ext !== "xlsx" && ext !== "xls") {
-      alert("Only Microsoft Excel files (.xlsx or .xls format) are supported locally.");
+    if (ext !== "csv" && ext !== "txt") {
+      alert("Only CSV files (.csv or comma-separated text) are supported locally.");
       return;
     }
 
     setFile(selectedFile);
     setOutputUrl(null);
     setOutputBlob(null);
+  };
+
+  // Helper to parse CSV handles double quotes and commas accurately offline
+  const parseCSV = (text: string) => {
+    const lines = text.split(/\r?\n/);
+    return lines.map(line => {
+      const result = [];
+      let current = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = "";
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    }).filter(row => row.length > 0 && row.some(cell => cell !== ""));
   };
 
   const handleConvert = async () => {
@@ -86,7 +108,7 @@ export default function ExcelToPdf() {
 
     // Create a temporary block element in standard page flow
     const hiddenContainer = document.createElement("div");
-    hiddenContainer.id = "excel-render-container";
+    hiddenContainer.id = "csv-render-container";
     hiddenContainer.style.width = orientation === "landscape" ? "1060px" : "794px";
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
@@ -100,61 +122,77 @@ export default function ExcelToPdf() {
     try {
       await loadAllEngines();
 
-      setProgressMsg("Unpacking Excel binary data...");
-      const arrayBuffer = await file.arrayBuffer();
+      setProgressMsg("Parsing local CSV tables...");
+      const textContent = await file.text();
+      const rows = parseCSV(textContent);
 
-      setProgressMsg("Converting spreadsheet grids...");
-      const XLSX = (window as any).XLSX;
-      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+      if (rows.length === 0) {
+        throw new Error("No data found inside CSV file.");
+      }
+
+      setProgressMsg("Generating layout sheets...");
+
+      // Reconstruct clean HTML table structure
+      let tableHtml = "<table>";
       
-      // Render all sheets sequentially into HTML
-      let combinedHtml = "";
-      workbook.SheetNames.forEach((sheetName: string) => {
-        const worksheet = workbook.Sheets[sheetName];
-        const sheetHtml = XLSX.utils.sheet_to_html(worksheet);
-        
-        combinedHtml += `
-          <div style="page-break-after: always; margin-bottom: 30px;">
-            <h2 style="font-family: sans-serif; font-size: 14px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 4px;">
-              ${sheetName}
-            </h2>
-            <div style="overflow-x: auto;">
-              ${sheetHtml}
-            </div>
-          </div>
-        `;
+      // Header row
+      const headers = rows[0];
+      tableHtml += "<thead><tr>";
+      headers.forEach(h => {
+        tableHtml += `<th>${h.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</th>`;
       });
+      tableHtml += "</tr></thead><tbody>";
 
-      // Inject HTML content with spreadsheet border styles
+      // Data rows
+      for (let i = 1; i < rows.length; i++) {
+        const columns = rows[i];
+        tableHtml += "<tr>";
+        // Fill empty cells if line row count is shorter than header count
+        for (let j = 0; j < headers.length; j++) {
+          const val = columns[j] || "";
+          tableHtml += `<td>${val.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</td>`;
+        }
+        tableHtml += "</tr>";
+      }
+      tableHtml += "</tbody></table>";
+
       hiddenContainer.innerHTML = `
         <style>
-          #excel-render-container table { 
+          #csv-render-container table { 
             border-collapse: collapse; 
             width: 100%; 
             font-family: sans-serif; 
             font-size: 9px; 
-            margin-bottom: 20px;
+            margin-top: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
           }
-          #excel-render-container td, #excel-render-container th { 
+          #csv-render-container td, #csv-render-container th { 
             border: 1px solid #e2e8f0; 
             padding: 5px; 
             text-align: left; 
           }
-          #excel-render-container tr:nth-child(even) { 
+          #csv-render-container tr:nth-child(even) { 
             background-color: #f8fafc; 
           }
-          #excel-render-container th { 
+          #csv-render-container th { 
             background-color: #f1f5f9; 
             font-weight: bold; 
             color: #334155;
           }
         </style>
-        ${combinedHtml}
+        <div style="page-break-after: always;">
+          <h2 style="font-family: sans-serif; font-size: 13px; margin-bottom: 15px; color: #0f766e; border-bottom: 2px solid #14b8a6; padding-bottom: 4px;">
+            CSV Sheet Data Report
+          </h2>
+          <div style="overflow-x: auto;">
+            ${tableHtml}
+          </div>
+        </div>
       `;
 
       setProgressMsg("Compiling final vector PDF file...");
 
-      // 1. Temporarily override String.fromCodePoint to catch html2canvas crashes on glyph codes
+      // 1. Override String.fromCodePoint to catch html2canvas glyph RangeError
       String.fromCodePoint = function (...codePoints: number[]) {
         try {
           return originalFromCodePoint.apply(this, codePoints);
@@ -183,8 +221,8 @@ export default function ExcelToPdf() {
       setOutputUrl(url);
 
     } catch (err) {
-      console.error("Excel conversion failure:", err);
-      alert("Failed to convert Excel document. Verify it is not corrupted or password-encrypted.");
+      console.error("CSV conversion failure:", err);
+      alert("Failed to convert CSV file. Please make sure the format is valid.");
     } finally {
       // Reset loader
       setConverting(false);
@@ -267,26 +305,26 @@ export default function ExcelToPdf() {
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-file-excel-line text-green-600 dark:text-green-500"></i> Excel to PDF Converter
+              <i className="ri-file-list-3-line text-teal-600 dark:text-teal-500"></i> CSV to PDF Converter
             </h1>
             <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Convert Excel sheets (.xlsx/.xls) into formatted vector PDFs offline. Your data remains strictly local.
+              Convert CSV files (.csv) into structured PDF document sheets locally. Zero server uploads.
             </p>
           </div>
 
           {!file && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-file-excel-fill"></i>
+              <div className="h-14 w-14 bg-teal-100 dark:bg-teal-900/20 text-teal-600 dark:text-teal-500 rounded-2xl flex items-center justify-center text-2xl">
+                <i className="ri-file-list-3-fill"></i>
               </div>
               <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Spreadsheet to convert</p>
-                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a XLSX or XLS file to start.</p>
+                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select CSV file to convert</p>
+                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a CSV or TXT data file to compile.</p>
               </div>
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".xlsx,.xls"
+                accept=".csv,.txt"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -294,7 +332,7 @@ export default function ExcelToPdf() {
                 onClick={() => fileInputRef.current?.click()}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
               >
-                Choose Excel File
+                Choose CSV File
               </button>
             </div>
           )}
@@ -304,8 +342,8 @@ export default function ExcelToPdf() {
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Spreadsheet...</p>
-                <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Sheet Data...</p>
+                <p className="text-xs text-zinc-550 font-mono">{progressMsg}</p>
               </div>
             </div>
           )}
@@ -316,12 +354,12 @@ export default function ExcelToPdf() {
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">
-                  <div className="h-10 w-10 bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
-                    <i className="ri-file-excel-line"></i>
+                  <div className="h-10 w-10 bg-teal-50 dark:bg-teal-900/10 text-teal-600 dark:text-teal-450 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                    <i className="ri-file-list-line"></i>
                   </div>
                   <div className="text-left">
                     <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{file.name}</p>
-                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Excel File</p>
+                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded CSV File</p>
                   </div>
                 </div>
                 <button
@@ -351,7 +389,7 @@ export default function ExcelToPdf() {
                 <i className="ri-shuffle-line text-blue-500 text-3xl"></i>
                 <p className="font-semibold text-zinc-700 dark:text-zinc-300">Spreadsheet Render Pipeline</p>
                 <p className="max-w-md mx-auto leading-relaxed">
-                  SafelyPrint extracts spreadsheet grids from all active sheet tabs and renders them into standard vector-based PDF format.
+                  SafelyPrint renders comma-separated text databases into structural grids and exports A4 vector-based PDFs locally.
                 </p>
               </div>
 
@@ -375,7 +413,7 @@ export default function ExcelToPdf() {
               </div>
               <div className="space-y-1.5">
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Converted Successfully!</h3>
-                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your Excel sheet is converted. Secure share or download below.</p>
+                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your CSV file is converted. Secure share or download below.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
@@ -400,7 +438,7 @@ export default function ExcelToPdf() {
                 }}
                 className="text-xs font-semibold text-zinc-405 hover:underline cursor-pointer block mx-auto"
               >
-                Convert Another Spreadsheet
+                Convert Another CSV
               </button>
             </div>
           )}

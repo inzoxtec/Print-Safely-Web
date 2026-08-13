@@ -1,4 +1,4 @@
-// app/tools/excel-to-pdf/ExcelToPdf.tsx
+// app/tools/watermark/WatermarkPdf.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -9,19 +9,23 @@ import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-export default function ExcelToPdf() {
+export default function WatermarkPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   
+  // Custom configurations
+  const [watermarkText, setWatermarkText] = useState("CONFIDENTIAL");
+  const [opacity, setOpacity] = useState(0.35);
+  const [fontSize, setFontSize] = useState(48);
+  const [rotation, setRotation] = useState(45);
+  const [colorMode, setColorMode] = useState<"gray" | "red" | "blue" | "green">("gray");
+
   // Action states
   const [converting, setConverting] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
-  // Configuration options
-  const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
-  
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isPremium, setIsPremium] = useState(false);
 
@@ -46,31 +50,12 @@ export default function ExcelToPdf() {
     fetchUserPlan();
   }, [user]);
 
-  // Dynamic script loader helper
-  const loadScript = (src: string, globalName: string): Promise<any> => {
-    if ((window as any)[globalName]) return Promise.resolve((window as any)[globalName]);
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = src;
-      script.onload = () => resolve((window as any)[globalName]);
-      script.onerror = () => reject(new Error(`Failed to load ${globalName}`));
-      document.head.appendChild(script);
-    });
-  };
-
-  const loadAllEngines = async () => {
-    setProgressMsg("Loading Excel extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
-  };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const selectedFile = e.target.files[0];
     
-    const ext = selectedFile.name.split(".").pop()?.toLowerCase();
-    if (ext !== "xlsx" && ext !== "xls") {
-      alert("Only Microsoft Excel files (.xlsx or .xls format) are supported locally.");
+    if (selectedFile.type !== "application/pdf" && !selectedFile.name.endsWith(".pdf")) {
+      alert("Please upload a valid PDF document.");
       return;
     }
 
@@ -79,131 +64,74 @@ export default function ExcelToPdf() {
     setOutputBlob(null);
   };
 
-  const handleConvert = async () => {
-    if (!file) return;
+  const handleWatermark = async () => {
+    if (!file || !watermarkText) {
+      alert("Please upload a file and enter watermark text.");
+      return;
+    }
     setConverting(true);
-    setProgressMsg("Preparing rendering targets...");
-
-    // Create a temporary block element in standard page flow
-    const hiddenContainer = document.createElement("div");
-    hiddenContainer.id = "excel-render-container";
-    hiddenContainer.style.width = orientation === "landscape" ? "1060px" : "794px";
-    hiddenContainer.style.background = "#FFFFFF";
-    hiddenContainer.style.color = "#000000";
-    hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "20px";
-    document.body.appendChild(hiddenContainer);
-
-    // Save native String.fromCodePoint reference
-    const originalFromCodePoint = String.fromCodePoint;
+    setProgressMsg("Loading rendering vectors...");
 
     try {
-      await loadAllEngines();
+      const { PDFDocument, rgb, degrees, StandardFonts } = await import("pdf-lib");
 
-      setProgressMsg("Unpacking Excel binary data...");
+      setProgressMsg("Reading PDF byte arrays...");
       const arrayBuffer = await file.arrayBuffer();
 
-      setProgressMsg("Converting spreadsheet grids...");
-      const XLSX = (window as any).XLSX;
-      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
-      
-      // Render all sheets sequentially into HTML
-      let combinedHtml = "";
-      workbook.SheetNames.forEach((sheetName: string) => {
-        const worksheet = workbook.Sheets[sheetName];
-        const sheetHtml = XLSX.utils.sheet_to_html(worksheet);
+      setProgressMsg("Stamping pages...");
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      const helveticaFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const pages = pdfDoc.getPages();
+
+      // Configure RGB color object
+      let red = 0.5, green = 0.5, blue = 0.5;
+      if (colorMode === "red") { red = 0.9; green = 0.1; blue = 0.1; }
+      else if (colorMode === "blue") { red = 0.15; green = 0.35; blue = 0.8; }
+      else if (colorMode === "green") { red = 0.1; green = 0.7; blue = 0.1; }
+
+      pages.forEach((page) => {
+        const { width, height } = page.getSize();
         
-        combinedHtml += `
-          <div style="page-break-after: always; margin-bottom: 30px;">
-            <h2 style="font-family: sans-serif; font-size: 14px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 4px;">
-              ${sheetName}
-            </h2>
-            <div style="overflow-x: auto;">
-              ${sheetHtml}
-            </div>
-          </div>
-        `;
+        // Compute approximate center coordinates for layout centering
+        const textWidth = helveticaFont.widthOfTextAtSize(watermarkText, fontSize);
+        const textHeight = helveticaFont.heightAtSize(fontSize);
+
+        const xCenter = (width - textWidth) / 2;
+        const yCenter = (height - textHeight) / 2;
+
+        page.drawText(watermarkText, {
+          x: xCenter,
+          y: yCenter,
+          size: fontSize,
+          font: helveticaFont,
+          color: rgb(red, green, blue),
+          opacity: opacity,
+          rotate: degrees(rotation),
+        });
       });
 
-      // Inject HTML content with spreadsheet border styles
-      hiddenContainer.innerHTML = `
-        <style>
-          #excel-render-container table { 
-            border-collapse: collapse; 
-            width: 100%; 
-            font-family: sans-serif; 
-            font-size: 9px; 
-            margin-bottom: 20px;
-          }
-          #excel-render-container td, #excel-render-container th { 
-            border: 1px solid #e2e8f0; 
-            padding: 5px; 
-            text-align: left; 
-          }
-          #excel-render-container tr:nth-child(even) { 
-            background-color: #f8fafc; 
-          }
-          #excel-render-container th { 
-            background-color: #f1f5f9; 
-            font-weight: bold; 
-            color: #334155;
-          }
-        </style>
-        ${combinedHtml}
-      `;
+      setProgressMsg("Saving PDF structure...");
+      const pdfBytesOutput = await pdfDoc.save();
 
-      setProgressMsg("Compiling final vector PDF file...");
-
-      // 1. Temporarily override String.fromCodePoint to catch html2canvas crashes on glyph codes
-      String.fromCodePoint = function (...codePoints: number[]) {
-        try {
-          return originalFromCodePoint.apply(this, codePoints);
-        } catch (err) {
-          return "";
-        }
-      };
-
-      // 2. Generate PDF via html2pdf using outputPdf("blob")
-      const html2pdfEngine = (window as any).html2pdf;
-      const pdfOptions = {
-        margin: 10,
-        filename: `${file.name.split(".")[0]}.pdf`,
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true }, 
-        jsPDF: { unit: "mm", format: "a4", orientation: orientation }
-      };
-
-      const pdfBlobOutput = await html2pdfEngine()
-        .from(hiddenContainer)
-        .set(pdfOptions)
-        .outputPdf("blob");
-
+      const pdfBlobOutput = new Blob([pdfBytesOutput] as any, { type: "application/pdf" });
       const url = URL.createObjectURL(pdfBlobOutput);
+
       setOutputBlob(pdfBlobOutput);
       setOutputUrl(url);
 
-    } catch (err) {
-      console.error("Excel conversion failure:", err);
-      alert("Failed to convert Excel document. Verify it is not corrupted or password-encrypted.");
+    } catch (err: any) {
+      console.error("PDF watermarking failure:", err);
+      alert("Failed to stamp watermark onto PDF document.");
     } finally {
-      // Reset loader
       setConverting(false);
       setProgressMsg("");
-
-      // Restore native String.fromCodePoint
-      String.fromCodePoint = originalFromCodePoint;
-
-      // Clear rendering node
-      if (document.body.contains(hiddenContainer)) {
-        document.body.removeChild(hiddenContainer);
-      }
     }
   };
 
   const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
     
-    const name = `${file?.name?.split(".")[0]}.pdf`;
+    const name = `Watermarked_${file?.name}`;
     const type = "application/pdf";
 
     const openDb = (): Promise<IDBDatabase> => {
@@ -267,26 +195,26 @@ export default function ExcelToPdf() {
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-file-excel-line text-green-600 dark:text-green-500"></i> Excel to PDF Converter
+              <i className="ri-water-flash-line text-pink-600 dark:text-pink-500"></i> Watermark PDF Document
             </h1>
             <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Convert Excel sheets (.xlsx/.xls) into formatted vector PDFs offline. Your data remains strictly local.
+              Apply security or brand watermarks to all pages of your PDF offline. Configured client-side in RAM.
             </p>
           </div>
 
           {!file && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-file-excel-fill"></i>
+              <div className="h-14 w-14 bg-pink-100 dark:bg-pink-900/20 text-pink-600 dark:text-pink-500 rounded-2xl flex items-center justify-center text-2xl">
+                <i className="ri-water-flash-fill"></i>
               </div>
               <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Spreadsheet to convert</p>
-                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a XLSX or XLS file to start.</p>
+                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select PDF document to watermark</p>
+                <p className="text-[14px] text-zinc-405 dark:text-zinc-550 mt-1">Upload a PDF to apply custom text overlays.</p>
               </div>
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".xlsx,.xls"
+                accept=".pdf,application/pdf"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -294,7 +222,7 @@ export default function ExcelToPdf() {
                 onClick={() => fileInputRef.current?.click()}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
               >
-                Choose Excel File
+                Choose PDF File
               </button>
             </div>
           )}
@@ -304,7 +232,7 @@ export default function ExcelToPdf() {
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Spreadsheet...</p>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">Stamping Pages...</p>
                 <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
               </div>
             </div>
@@ -316,12 +244,12 @@ export default function ExcelToPdf() {
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">
-                  <div className="h-10 w-10 bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
-                    <i className="ri-file-excel-line"></i>
+                  <div className="h-10 w-10 bg-pink-50 dark:bg-pink-900/10 text-pink-650 dark:text-pink-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                    <i className="ri-file-pdf-line"></i>
                   </div>
                   <div className="text-left">
                     <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{file.name}</p>
-                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Excel File</p>
+                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded PDF File</p>
                   </div>
                 </div>
                 <button
@@ -332,35 +260,87 @@ export default function ExcelToPdf() {
                 </button>
               </div>
 
-              {/* Layout Config */}
-              <div className="text-left">
-                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
-                  Page Orientation
-                </label>
-                <select
-                  value={orientation}
-                  onChange={(e: any) => setOrientation(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer font-bold"
-                >
-                  <option value="landscape">Landscape (Best for Wide Spreadsheets)</option>
-                  <option value="portrait">Portrait</option>
-                </select>
-              </div>
+              {/* Watermark Configuration Form Panel */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-left">
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    Watermark Text
+                  </label>
+                  <input
+                    type="text"
+                    value={watermarkText}
+                    onChange={(e) => setWatermarkText(e.target.value)}
+                    placeholder="e.g. CONFIDENTIAL"
+                    className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-bold"
+                  />
+                </div>
 
-              <div className="py-6 text-center text-xs text-zinc-555 dark:text-zinc-455 space-y-2">
-                <i className="ri-shuffle-line text-blue-500 text-3xl"></i>
-                <p className="font-semibold text-zinc-700 dark:text-zinc-300">Spreadsheet Render Pipeline</p>
-                <p className="max-w-md mx-auto leading-relaxed">
-                  SafelyPrint extracts spreadsheet grids from all active sheet tabs and renders them into standard vector-based PDF format.
-                </p>
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    Watermark Color
+                  </label>
+                  <select
+                    value={colorMode}
+                    onChange={(e: any) => setColorMode(e.target.value)}
+                    className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer font-bold"
+                  >
+                    <option value="gray">Gray (Neutral)</option>
+                    <option value="red">Red (Urgent)</option>
+                    <option value="blue">Blue (Corporate)</option>
+                    <option value="green">Green (Approved)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    Opacity ({Math.round(opacity * 100)}%)
+                  </label>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="0.8"
+                    step="0.05"
+                    value={opacity}
+                    onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                    className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    Font Size ({fontSize}px)
+                  </label>
+                  <input
+                    type="range"
+                    min="18"
+                    max="96"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(parseInt(e.target.value))}
+                    className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    Rotation angle ({rotation}°)
+                  </label>
+                  <input
+                    type="range"
+                    min="-90"
+                    max="90"
+                    value={rotation}
+                    onChange={(e) => setRotation(parseInt(e.target.value))}
+                    className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
               </div>
 
               <div className="pt-4 border-t border-zinc-150 dark:border-zinc-800 flex justify-end">
                 <button
-                  onClick={handleConvert}
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-1.5"
+                  onClick={handleWatermark}
+                  className="px-6 py-2.5 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-1.5"
                 >
-                  <i className="ri-shuffle-line"></i> Convert to PDF
+                  <i className="ri-water-flash-line"></i> Stamp Watermark PDF
                 </button>
               </div>
 
@@ -374,13 +354,13 @@ export default function ExcelToPdf() {
                 <i className="ri-checkbox-circle-fill text-emerald-500"></i>
               </div>
               <div className="space-y-1.5">
-                <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Converted Successfully!</h3>
-                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your Excel sheet is converted. Secure share or download below.</p>
+                <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Watermarked Successfully!</h3>
+                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your PDF pages have been overlaid with the custom watermark.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
                   href={outputUrl}
-                  download={`${file?.name?.split(".")[0]}.pdf`}
+                  download={`Watermarked_${file?.name}`}
                   className="w-full sm:w-auto px-5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <i className="ri-download-2-line"></i> Download PDF
@@ -400,7 +380,7 @@ export default function ExcelToPdf() {
                 }}
                 className="text-xs font-semibold text-zinc-405 hover:underline cursor-pointer block mx-auto"
               >
-                Convert Another Spreadsheet
+                Watermark Another PDF
               </button>
             </div>
           )}

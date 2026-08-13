@@ -1,4 +1,4 @@
-// app/tools/excel-to-pdf/ExcelToPdf.tsx
+// app/tools/txt-to-pdf/TxtToPdf.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -9,7 +9,7 @@ import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-export default function ExcelToPdf() {
+export default function TxtToPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   
@@ -20,7 +20,7 @@ export default function ExcelToPdf() {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
 
   // Configuration options
-  const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isPremium, setIsPremium] = useState(false);
@@ -59,8 +59,7 @@ export default function ExcelToPdf() {
   };
 
   const loadAllEngines = async () => {
-    setProgressMsg("Loading Excel extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
+    setProgressMsg("Loading rendering engines...");
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
   };
 
@@ -69,14 +68,89 @@ export default function ExcelToPdf() {
     const selectedFile = e.target.files[0];
     
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
-    if (ext !== "xlsx" && ext !== "xls") {
-      alert("Only Microsoft Excel files (.xlsx or .xls format) are supported locally.");
+    if (ext !== "txt" && ext !== "md") {
+      alert("Only Text (.txt) or Markdown (.md) files are supported locally.");
       return;
     }
 
     setFile(selectedFile);
     setOutputUrl(null);
     setOutputBlob(null);
+  };
+
+  // Safe markdown to HTML parser
+  const parseMarkdownToHtml = (text: string): string => {
+    const lines = text.split("\n");
+    let inList = false;
+    let inCode = false;
+    let html = "";
+
+    for (let line of lines) {
+      // Code blocks
+      if (line.trim().startsWith("```")) {
+        if (inCode) {
+          html += "</pre></div>";
+          inCode = false;
+        } else {
+          html += "<div style='background:#f4f4f5; padding:10px; border-radius:8px; font-family:monospace; margin-bottom:12px; border:1px solid #e4e4e7;'><pre style='margin:0; white-space:pre-wrap;'>";
+          inCode = true;
+        }
+        continue;
+      }
+      if (inCode) {
+        html += line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "\n";
+        continue;
+      }
+
+      // Headers
+      if (line.startsWith("# ")) {
+        if (inList) { html += "</ul>"; inList = false; }
+        html += `<h1 style="font-family:sans-serif; font-size:20px; font-weight:bold; margin-top:20px; margin-bottom:10px; border-bottom:1px solid #e4e4e7; padding-bottom:5px; color:#111827;">${line.substring(2)}</h1>`;
+        continue;
+      }
+      if (line.startsWith("## ")) {
+        if (inList) { html += "</ul>"; inList = false; }
+        html += `<h2 style="font-family:sans-serif; font-size:16px; font-weight:bold; margin-top:16px; margin-bottom:8px; color:#1f2937;">${line.substring(3)}</h2>`;
+        continue;
+      }
+      if (line.startsWith("### ")) {
+        if (inList) { html += "</ul>"; inList = false; }
+        html += `<h3 style="font-family:sans-serif; font-size:13px; font-weight:bold; margin-top:12px; margin-bottom:6px; color:#374151;">${line.substring(4)}</h3>`;
+        continue;
+      }
+
+      // Lists
+      if (line.trim().startsWith("- ") || line.trim().startsWith("* ")) {
+        if (!inList) {
+          html += "<ul style='margin-bottom:12px; padding-left:20px; list-style-type:disc;'>";
+          inList = true;
+        }
+        const liContent = line.trim().substring(2)
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*(.*?)\*/g, "<em>$1</em>");
+        html += `<li style='margin-bottom:4px; font-size:11px; font-family:sans-serif; color:#374151;'>${liContent}</li>`;
+        continue;
+      } else if (inList && line.trim() === "") {
+        html += "</ul>";
+        inList = false;
+        continue;
+      }
+
+      // Paragraphs
+      if (line.trim() !== "") {
+        let formattedLine = line
+          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*(.*?)\*/g, "<em>$1</em>")
+          .replace(/`(.*?)`/g, "<code style='background:#f4f4f5; padding:2px 4px; border-radius:4px; font-family:monospace; font-size:10px;'>$1</code>");
+        html += `<p style="font-family:sans-serif; font-size:11px; line-height:1.6; margin-bottom:10px; color:#374151;">${formattedLine}</p>`;
+      } else {
+        html += "<div style='height:8px;'></div>";
+      }
+    }
+    if (inList) html += "</ul>";
+    if (inCode) html += "</pre></div>";
+
+    return html;
   };
 
   const handleConvert = async () => {
@@ -86,12 +160,12 @@ export default function ExcelToPdf() {
 
     // Create a temporary block element in standard page flow
     const hiddenContainer = document.createElement("div");
-    hiddenContainer.id = "excel-render-container";
+    hiddenContainer.id = "txt-render-container";
     hiddenContainer.style.width = orientation === "landscape" ? "1060px" : "794px";
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
     hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "20px";
+    hiddenContainer.style.padding = "40px";
     document.body.appendChild(hiddenContainer);
 
     // Save native String.fromCodePoint reference
@@ -100,61 +174,21 @@ export default function ExcelToPdf() {
     try {
       await loadAllEngines();
 
-      setProgressMsg("Unpacking Excel binary data...");
-      const arrayBuffer = await file.arrayBuffer();
+      setProgressMsg("Reading document stream...");
+      const textContent = await file.text();
 
-      setProgressMsg("Converting spreadsheet grids...");
-      const XLSX = (window as any).XLSX;
-      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
-      
-      // Render all sheets sequentially into HTML
-      let combinedHtml = "";
-      workbook.SheetNames.forEach((sheetName: string) => {
-        const worksheet = workbook.Sheets[sheetName];
-        const sheetHtml = XLSX.utils.sheet_to_html(worksheet);
-        
-        combinedHtml += `
-          <div style="page-break-after: always; margin-bottom: 30px;">
-            <h2 style="font-family: sans-serif; font-size: 14px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 4px;">
-              ${sheetName}
-            </h2>
-            <div style="overflow-x: auto;">
-              ${sheetHtml}
-            </div>
-          </div>
-        `;
-      });
+      setProgressMsg("Formatting text layout...");
+      const compiledHtml = parseMarkdownToHtml(textContent);
 
-      // Inject HTML content with spreadsheet border styles
       hiddenContainer.innerHTML = `
-        <style>
-          #excel-render-container table { 
-            border-collapse: collapse; 
-            width: 100%; 
-            font-family: sans-serif; 
-            font-size: 9px; 
-            margin-bottom: 20px;
-          }
-          #excel-render-container td, #excel-render-container th { 
-            border: 1px solid #e2e8f0; 
-            padding: 5px; 
-            text-align: left; 
-          }
-          #excel-render-container tr:nth-child(even) { 
-            background-color: #f8fafc; 
-          }
-          #excel-render-container th { 
-            background-color: #f1f5f9; 
-            font-weight: bold; 
-            color: #334155;
-          }
-        </style>
-        ${combinedHtml}
+        <div style="font-family: sans-serif; line-height: 1.6; color: #1f2937;">
+          ${compiledHtml}
+        </div>
       `;
 
       setProgressMsg("Compiling final vector PDF file...");
 
-      // 1. Temporarily override String.fromCodePoint to catch html2canvas crashes on glyph codes
+      // 1. Override String.fromCodePoint to catch html2canvas glyph RangeError
       String.fromCodePoint = function (...codePoints: number[]) {
         try {
           return originalFromCodePoint.apply(this, codePoints);
@@ -166,7 +200,7 @@ export default function ExcelToPdf() {
       // 2. Generate PDF via html2pdf using outputPdf("blob")
       const html2pdfEngine = (window as any).html2pdf;
       const pdfOptions = {
-        margin: 10,
+        margin: 15,
         filename: `${file.name.split(".")[0]}.pdf`,
         image: { type: "jpeg", quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true }, 
@@ -183,8 +217,8 @@ export default function ExcelToPdf() {
       setOutputUrl(url);
 
     } catch (err) {
-      console.error("Excel conversion failure:", err);
-      alert("Failed to convert Excel document. Verify it is not corrupted or password-encrypted.");
+      console.error("Text conversion failure:", err);
+      alert("Failed to convert file. Please make sure the format is valid.");
     } finally {
       // Reset loader
       setConverting(false);
@@ -267,26 +301,26 @@ export default function ExcelToPdf() {
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-file-excel-line text-green-600 dark:text-green-500"></i> Excel to PDF Converter
+              <i className="ri-file-text-line text-slate-600 dark:text-slate-500"></i> Text & Markdown to PDF
             </h1>
             <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Convert Excel sheets (.xlsx/.xls) into formatted vector PDFs offline. Your data remains strictly local.
+              Convert plain text (.txt) and Markdown (.md) documents into beautifully styled vector PDFs offline.
             </p>
           </div>
 
           {!file && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-file-excel-fill"></i>
+              <div className="h-14 w-14 bg-slate-100 dark:bg-slate-900/20 text-slate-600 dark:text-slate-500 rounded-2xl flex items-center justify-center text-2xl">
+                <i className="ri-file-text-fill"></i>
               </div>
               <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Spreadsheet to convert</p>
-                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a XLSX or XLS file to start.</p>
+                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Text or Markdown file</p>
+                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a TXT or MD document to compile.</p>
               </div>
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".xlsx,.xls"
+                accept=".txt,.md"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -294,7 +328,7 @@ export default function ExcelToPdf() {
                 onClick={() => fileInputRef.current?.click()}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
               >
-                Choose Excel File
+                Choose Text/MD File
               </button>
             </div>
           )}
@@ -304,8 +338,8 @@ export default function ExcelToPdf() {
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Spreadsheet...</p>
-                <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Document Layout...</p>
+                <p className="text-xs text-zinc-550 font-mono">{progressMsg}</p>
               </div>
             </div>
           )}
@@ -316,12 +350,12 @@ export default function ExcelToPdf() {
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">
-                  <div className="h-10 w-10 bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
-                    <i className="ri-file-excel-line"></i>
+                  <div className="h-10 w-10 bg-slate-50 dark:bg-slate-900/10 text-slate-600 dark:text-slate-450 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                    <i className="ri-file-text-line"></i>
                   </div>
                   <div className="text-left">
                     <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{file.name}</p>
-                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Excel File</p>
+                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Text Document</p>
                   </div>
                 </div>
                 <button
@@ -342,16 +376,16 @@ export default function ExcelToPdf() {
                   onChange={(e: any) => setOrientation(e.target.value)}
                   className="w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer font-bold"
                 >
-                  <option value="landscape">Landscape (Best for Wide Spreadsheets)</option>
-                  <option value="portrait">Portrait</option>
+                  <option value="portrait">Portrait (Best for standard notes/articles)</option>
+                  <option value="landscape">Landscape</option>
                 </select>
               </div>
 
               <div className="py-6 text-center text-xs text-zinc-555 dark:text-zinc-455 space-y-2">
                 <i className="ri-shuffle-line text-blue-500 text-3xl"></i>
-                <p className="font-semibold text-zinc-700 dark:text-zinc-300">Spreadsheet Render Pipeline</p>
+                <p className="font-semibold text-zinc-700 dark:text-zinc-300">Markdown Parser Engine</p>
                 <p className="max-w-md mx-auto leading-relaxed">
-                  SafelyPrint extracts spreadsheet grids from all active sheet tabs and renders them into standard vector-based PDF format.
+                  SafelyPrint styles headings, code blocks, bold strings, and lists offline before packing them into a vector A4 PDF.
                 </p>
               </div>
 
@@ -375,7 +409,7 @@ export default function ExcelToPdf() {
               </div>
               <div className="space-y-1.5">
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Converted Successfully!</h3>
-                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your Excel sheet is converted. Secure share or download below.</p>
+                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your text file is converted. Secure share or download below.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
@@ -400,7 +434,7 @@ export default function ExcelToPdf() {
                 }}
                 className="text-xs font-semibold text-zinc-405 hover:underline cursor-pointer block mx-auto"
               >
-                Convert Another Spreadsheet
+                Convert Another Document
               </button>
             </div>
           )}

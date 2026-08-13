@@ -89,6 +89,8 @@ export default function Header() {
         { name: "PDF to Image", href: "/tools/pdf-to-image", desc: "Export PDF pages as JPG/PNG", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /> },
         { name: "Docx to PDF", href: "/tools/doc-to-pdf", desc: "Convert Word documents to PDF", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /> },
         { name: "XLSX to PDF", href: "/tools/excel-to-pdf", desc: "Convert Excel spreadsheets to PDF", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /> },
+        { name: "CSV to PDF", href: "/tools/csv-to-pdf", desc: "Convert CSV spreadsheets to PDF", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /> },
+        { name: "Text to PDF", href: "/tools/txt-to-pdf", desc: "Convert Text & Markdown to PDF", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /> },
         { name: "Extract Text", href: "/tools/extract-text", desc: "Extract raw readable text data", icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /> },
       ]
     },
@@ -139,7 +141,12 @@ export default function Header() {
             </Link>
 
             {categories.map((category) => (
-              <div key={category.name} className="relative">
+              <div 
+                key={category.name} 
+                className="relative group"
+                onMouseEnter={() => setActiveDropdown(category.name)}
+                onMouseLeave={() => setActiveDropdown(null)}
+              >
                 <button
                   onClick={() => toggleDropdown(category.name)}
                   className={`flex items-center gap-1 text-sm font-semibold px-3 py-2 rounded-lg transition cursor-pointer ${
@@ -155,25 +162,27 @@ export default function Header() {
                 </button>
 
                 {activeDropdown === category.name && (
-                  <div className="absolute left-0 mt-2 w-80 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 shadow-2xl p-4 space-y-1 animate-in fade-in slide-in-from-top-2 duration-150">
-                    {category.items.map((item) => (
-                      <Link
-                        key={item.name}
-                        href={item.href}
-                        onClick={() => setActiveDropdown(null)}
-                        className="flex gap-3 items-start p-2.5 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-950 transition"
-                      >
-                        <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-600 flex-shrink-0 flex items-center justify-center">
-                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {item.icon}
-                          </svg>
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-zinc-900 dark:text-white leading-none mb-1">{item.name}</p>
-                          <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-normal">{item.desc}</p>
-                        </div>
-                      </Link>
-                    ))}
+                  <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 w-[480px] z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="bg-white dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/50 shadow-2xl rounded-2xl p-3 grid grid-cols-2 gap-1.5">
+                      {category.items.map((item) => (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          onClick={() => setActiveDropdown(null)}
+                          className="flex gap-3 items-start p-2.5 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-950 transition"
+                        >
+                          <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-600 flex-shrink-0 flex items-center justify-center">
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              {item.icon}
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-zinc-900 dark:text-white leading-none mb-1">{item.name}</p>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-normal">{item.desc}</p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
