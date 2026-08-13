@@ -278,6 +278,8 @@ function SecurePrintPageContent() {
     if (decryptedFiles.length === 0) return;
 
     const renderAllDocuments = async () => {
+      let lastEnteredPassword = "";
+
       for (let index = 0; index < decryptedFiles.length; index++) {
         const file = decryptedFiles[index];
         if (!file.decryptedUrl) continue;
@@ -289,7 +291,25 @@ function SecurePrintPageContent() {
             if (!pdfjsLib) {
               await new Promise((resolve) => setTimeout(resolve, 500));
             }
-            const loadingTask = pdfjsLib.getDocument(file.decryptedUrl);
+            const activePdfJs = (window as any).pdfjsLib || pdfjsLib;
+
+            const loadingTask = activePdfJs.getDocument({
+              url: file.decryptedUrl,
+              password: lastEnteredPassword || undefined
+            });
+            loadingTask.onPassword = (updatePassword: any, reason: number) => {
+              const enteredPassword = prompt(
+                reason === 1
+                  ? `"${file.name}" is password-protected. Please enter the password to view:`
+                  : `Incorrect password for "${file.name}". Please enter the correct password:`
+              );
+              if (enteredPassword !== null) {
+                lastEnteredPassword = enteredPassword;
+                updatePassword(enteredPassword);
+              } else {
+                updatePassword("");
+              }
+            };
             const pdf = await loadingTask.promise;
 
             setPdfPageCounts((prev) => ({ ...prev, [index]: pdf.numPages }));
