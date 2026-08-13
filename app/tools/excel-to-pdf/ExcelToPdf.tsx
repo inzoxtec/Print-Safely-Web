@@ -1,4 +1,4 @@
-// app/tools/doc-to-pdf/DocxPdf.tsx
+// app/tools/excel-to-pdf/ExcelToPdf.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -9,7 +9,7 @@ import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-export default function DocxPdf() {
+export default function ExcelToPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   
@@ -18,6 +18,9 @@ export default function DocxPdf() {
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+
+  // Configuration options
+  const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isPremium, setIsPremium] = useState(false);
@@ -56,9 +59,10 @@ export default function DocxPdf() {
   };
 
   const loadAllEngines = async () => {
-    setProgressMsg("Loading extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "JSZip");
-    await loadScript("https://unpkg.com/docx-preview@0.1.15/dist/docx-preview.min.js", "docx");
+    setProgressMsg("Loading Excel extraction libraries...");
+    // 1. SheetJS (xlsx)
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
+    // 2. html2pdf
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
   };
 
@@ -67,8 +71,8 @@ export default function DocxPdf() {
     const selectedFile = e.target.files[0];
     
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
-    if (ext !== "docx") {
-      alert("Only modern Microsoft Word files (.docx format) are supported locally.");
+    if (ext !== "xlsx" && ext !== "xls") {
+      alert("Only Microsoft Excel files (.xlsx or .xls format) are supported locally.");
       return;
     }
 
@@ -82,53 +86,93 @@ export default function DocxPdf() {
     setConverting(true);
     setProgressMsg("Preparing rendering targets...");
 
-    // Create a standard block element in normal page flow (at the bottom of the body)
+    // Create a temporary block element in standard page flow
     const hiddenContainer = document.createElement("div");
-    hiddenContainer.id = "docx-render-container";
-    hiddenContainer.style.width = "794px"; // Standard A4 layout width in pixels
+    hiddenContainer.id = "excel-render-container";
+    hiddenContainer.style.width = orientation === "landscape" ? "1060px" : "794px"; // landscape standard A4 width is ~1060px
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
     hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "0px"; // Zero padding to preserve docx native spacing
+    hiddenContainer.style.padding = "20px";
     document.body.appendChild(hiddenContainer);
 
-    // Save native String.fromCodePoint function reference to restore later
+    // Save native String.fromCodePoint reference
     const originalFromCodePoint = String.fromCodePoint;
 
     try {
       await loadAllEngines();
 
-      setProgressMsg("Unpacking Word document XML...");
+      setProgressMsg("Unpacking Excel binary data...");
       const arrayBuffer = await file.arrayBuffer();
 
-      setProgressMsg("Rendering Word elements locally...");
-      const docxEngine = (window as any).docx;
-      await docxEngine.renderAsync(arrayBuffer, hiddenContainer, null, {
-        inWrapper: false,
-        ignoreWidth: true,
-        ignoreHeight: true
+      setProgressMsg("Converting spreadsheet grids...");
+      const XLSX = (window as any).XLSX;
+      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: "array" });
+      
+      // Render all sheets sequentially into HTML
+      let combinedHtml = "";
+      workbook.SheetNames.forEach((sheetName: string) => {
+        const worksheet = workbook.Sheets[sheetName];
+        const sheetHtml = XLSX.utils.sheet_to_html(worksheet);
+        
+        combinedHtml += `
+          <div style="page-break-after: always; margin-bottom: 30px;">
+            <h2 style="font-family: sans-serif; font-size: 14px; margin-bottom: 10px; color: #1e3a8a; border-bottom: 2px solid #3b82f6; padding-bottom: 4px;">
+              ${sheetName}
+            </h2>
+            <div style="overflow-x: auto;">
+              ${sheetHtml}
+            </div>
+          </div>
+        `;
       });
+
+      // Inject HTML content with spreadsheet border styles
+      hiddenContainer.innerHTML = `
+        <style>
+          #excel-render-container table { 
+            border-collapse: collapse; 
+            width: 100%; 
+            font-family: sans-serif; 
+            font-size: 9px; 
+            margin-bottom: 20px;
+          }
+          #excel-render-container td, #excel-render-container th { 
+            border: 1px solid #e2e8f0; 
+            padding: 5px; 
+            text-align: left; 
+          }
+          #excel-render-container tr:nth-child(even) { 
+            background-color: #f8fafc; 
+          }
+          #excel-render-container th { 
+            background-color: #f1f5f9; 
+            font-weight: bold; 
+            color: #334155;
+          }
+        </style>
+        ${combinedHtml}
+      `;
 
       setProgressMsg("Compiling final vector PDF file...");
 
-      // 1. Temporarily override String.fromCodePoint to catch and bypass HTML2Canvas crashes
+      // 1. Temporarily override String.fromCodePoint to catch html2canvas crashes on glyph codes
       String.fromCodePoint = function (...codePoints: number[]) {
         try {
           return originalFromCodePoint.apply(this, codePoints);
         } catch (err) {
-          // Bypasses the RangeError: Invalid code point NaN
           return "";
         }
       };
 
-      // 2. Generate PDF via html2pdf using outputPdf("blob") and margin: 0
+      // 2. Generate PDF via html2pdf using outputPdf("blob")
       const html2pdfEngine = (window as any).html2pdf;
       const pdfOptions = {
-        margin: 0,
-        filename: `${file.name.replace(".docx", "")}.pdf`,
+        margin: 10,
+        filename: `${file.name.split(".")[0]}.pdf`,
         image: { type: "jpeg", quality: 0.95 },
         html2canvas: { scale: 2, useCORS: true }, 
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+        jsPDF: { unit: "mm", format: "a4", orientation: orientation }
       };
 
       const pdfBlobOutput = await html2pdfEngine()
@@ -141,17 +185,17 @@ export default function DocxPdf() {
       setOutputUrl(url);
 
     } catch (err) {
-      console.error("PDF local compilation failure:", err);
-      alert("Failed to convert Word document. Verify it is not corrupted or password-protected.");
+      console.error("Excel conversion failure:", err);
+      alert("Failed to convert Excel document. Verify it is not corrupted or password-encrypted.");
     } finally {
-      // Dismiss the loading status
+      // Reset loader
       setConverting(false);
       setProgressMsg("");
 
-      // Restore the native String.fromCodePoint function reference
+      // Restore native String.fromCodePoint
       String.fromCodePoint = originalFromCodePoint;
 
-      // Clear render target container
+      // Clear rendering node
       if (document.body.contains(hiddenContainer)) {
         document.body.removeChild(hiddenContainer);
       }
@@ -161,7 +205,7 @@ export default function DocxPdf() {
   const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
     
-    const name = `${file?.name?.replace(".docx", "")}.pdf`;
+    const name = `${file?.name?.split(".")[0]}.pdf`;
     const type = "application/pdf";
 
     const openDb = (): Promise<IDBDatabase> => {
@@ -225,26 +269,26 @@ export default function DocxPdf() {
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-file-word-line text-blue-600 dark:text-blue-500"></i> Word to PDF Converter
+              <i className="ri-file-excel-line text-green-600 dark:text-green-500"></i> Excel to PDF Converter
             </h1>
             <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Convert DOCX Word documents into aligned vector PDFs locally. Zero uploads, maximum document security.
+              Convert Excel sheets (.xlsx/.xls) into formatted vector PDFs offline. Your data remains strictly local.
             </p>
           </div>
 
           {!file && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-blue-105 dark:bg-blue-900/20 text-blue-600 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-file-word-fill"></i>
+              <div className="h-14 w-14 bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-500 rounded-2xl flex items-center justify-center text-2xl">
+                <i className="ri-file-excel-fill"></i>
               </div>
               <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Word Document to convert</p>
-                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a DOCX file. The tool parses layouts in real-time.</p>
+                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select Spreadsheet to convert</p>
+                <p className="text-[14px] text-zinc-400 dark:text-zinc-555 mt-1">Upload a XLSX or XLS file to start.</p>
               </div>
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".docx"
+                accept=".xlsx,.xls"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -252,17 +296,17 @@ export default function DocxPdf() {
                 onClick={() => fileInputRef.current?.click()}
                 className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
               >
-                Choose DOCX File
+                Choose Excel File
               </button>
             </div>
           )}
 
-          {/* LOCAL INLINE CONTAINER LOADER */}
+          {/* LOCAL INLINE LOADER */}
           {converting && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Word document...</p>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">Converting Spreadsheet...</p>
                 <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
               </div>
             </div>
@@ -274,12 +318,12 @@ export default function DocxPdf() {
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">
-                  <div className="h-10 w-10 bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
-                    <i className="ri-file-line"></i>
+                  <div className="h-10 w-10 bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                    <i className="ri-file-excel-line"></i>
                   </div>
                   <div className="text-left">
                     <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{file.name}</p>
-                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Word Document</p>
+                    <p className="text-[12px] text-zinc-400 dark:text-zinc-555 font-semibold">Loaded Excel File</p>
                   </div>
                 </div>
                 <button
@@ -290,11 +334,26 @@ export default function DocxPdf() {
                 </button>
               </div>
 
+              {/* Layout Config */}
+              <div className="text-left">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
+                  Page Orientation
+                </label>
+                <select
+                  value={orientation}
+                  onChange={(e: any) => setOrientation(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white text-sm rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none cursor-pointer font-bold"
+                >
+                  <option value="landscape">Landscape (Best for Wide Spreadsheets)</option>
+                  <option value="portrait">Portrait</option>
+                </select>
+              </div>
+
               <div className="py-6 text-center text-xs text-zinc-555 dark:text-zinc-455 space-y-2">
-                <i className="ri-file-text-line text-blue-500 text-3xl"></i>
-                <p className="font-semibold text-zinc-700 dark:text-zinc-300">Vector Formatting Pipeline</p>
+                <i className="ri-shuffle-line text-blue-500 text-3xl"></i>
+                <p className="font-semibold text-zinc-700 dark:text-zinc-300">Spreadsheet Render Pipeline</p>
                 <p className="max-w-md mx-auto leading-relaxed">
-                  SafelyPrint renders document layers dynamically and converts them into standard vector-based PDF format.
+                  SafelyPrint extracts spreadsheet grids from all active sheet tabs and renders them into standard vector-based PDF format.
                 </p>
               </div>
 
@@ -318,12 +377,12 @@ export default function DocxPdf() {
               </div>
               <div className="space-y-1.5">
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Converted Successfully!</h3>
-                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your Word document is converted. Secure share or download below.</p>
+                <p className="text-xs text-zinc-455 dark:text-zinc-400">Your Excel sheet is converted. Secure share or download below.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
                   href={outputUrl}
-                  download={`${file?.name?.replace(".docx", "")}.pdf`}
+                  download={`${file?.name?.split(".")[0]}.pdf`}
                   className="w-full sm:w-auto px-5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <i className="ri-download-2-line"></i> Download PDF
@@ -343,7 +402,7 @@ export default function DocxPdf() {
                 }}
                 className="text-xs font-semibold text-zinc-405 hover:underline cursor-pointer block mx-auto"
               >
-                Convert Another DOCX
+                Convert Another Spreadsheet
               </button>
             </div>
           )}

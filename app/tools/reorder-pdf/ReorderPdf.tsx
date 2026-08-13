@@ -184,20 +184,42 @@ export default function ReorderPdf() {
     }
   };
 
-  const handleForwardToSecureShare = () => {
+  const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      try {
-        sessionStorage.setItem("safelyprint_forward_file_name", `Reordered_${file?.name}`);
-        sessionStorage.setItem("safelyprint_forward_file_data", reader.result as string);
-        sessionStorage.setItem("safelyprint_forward_file_type", "application/pdf");
-        window.location.href = "/upload";
-      } catch (err) {
-        alert("The PDF is too large to forward automatically.");
-      }
+    
+    const name = `Reordered_${file?.name}`;
+    const type = "application/pdf";
+
+    const openDb = (): Promise<IDBDatabase> => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open("SafelyPrintDB", 1);
+        request.onupgradeneeded = (e: any) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("forwarded_files")) {
+            db.createObjectStore("forwarded_files");
+          }
+        };
+        request.onsuccess = (e: any) => resolve(e.target.result);
+        request.onerror = (e: any) => reject(e.target.error);
+      });
     };
-    reader.readAsDataURL(outputBlob);
+
+    try {
+      const dbInstance = await openDb();
+      const transaction = dbInstance.transaction("forwarded_files", "readwrite");
+      const store = transaction.objectStore("forwarded_files");
+
+      await new Promise<void>((resolve, reject) => {
+        const putRequest = store.put({ name, blob: outputBlob, type, timestamp: Date.now() }, "active_forward");
+        putRequest.onsuccess = () => resolve();
+        putRequest.onerror = () => reject(putRequest.error);
+      });
+
+      window.location.href = "/upload";
+    } catch (err) {
+      console.error(err);
+      alert("Failed to queue file database write locally. Please download the file instead.");
+    }
   };
 
   return (

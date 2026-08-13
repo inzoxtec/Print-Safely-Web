@@ -50,26 +50,50 @@ export default function UploadPage() {
     fetchUserPlan();
   }, [user]);
 
-  // 2. Load forwarded files from sessionStorage (Works for all PDF/Image tools)
+  // 2. Load forwarded files from IndexedDB (Bypasses the 5MB sessionStorage quota limit!)
   useEffect(() => {
-    const forwardedName = sessionStorage.getItem("safelyprint_forward_file_name");
-    const forwardedData = sessionStorage.getItem("safelyprint_forward_file_data");
-    const forwardedType = sessionStorage.getItem("safelyprint_forward_file_type");
+    const retrieveForwardedFile = async () => {
+      const openDb = (): Promise<IDBDatabase> => {
+        return new Promise((resolve) => {
+          const request = indexedDB.open("SafelyPrintDB", 1);
+          request.onupgradeneeded = (e: any) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains("forwarded_files")) {
+              db.createObjectStore("forwarded_files");
+            }
+          };
+          request.onsuccess = (e: any) => resolve(e.target.result);
+          request.onerror = () => resolve(null as any);
+        });
+      };
 
-    if (forwardedName && forwardedData) {
-      fetch(forwardedData)
-        .then((res) => res.blob())
-        .then((blob) => {
-          const file = new File([blob], forwardedName, { type: forwardedType || "application/pdf" });
-          setFiles([file]);
-        })
-        .catch((err) => console.error("Forward recovery failed:", err));
+      try {
+        const dbInstance = await openDb();
+        if (!dbInstance) return;
+        
+        const transaction = dbInstance.transaction("forwarded_files", "readonly");
+        const store = transaction.objectStore("forwarded_files");
 
-      // Clear session keys
-      sessionStorage.removeItem("safelyprint_forward_file_name");
-      sessionStorage.removeItem("safelyprint_forward_file_data");
-      sessionStorage.removeItem("safelyprint_forward_file_type");
-    }
+        const data: any = await new Promise((resolve) => {
+          const getRequest = store.get("active_forward");
+          getRequest.onsuccess = () => resolve(getRequest.result);
+          getRequest.onerror = () => resolve(null);
+        });
+
+        if (data && data.blob) {
+          const forwardedFile = new File([data.blob], data.name, { type: data.type });
+          setFiles([forwardedFile]);
+
+          // Clear database record so it doesn't reload on page refresh
+          const deleteTransaction = dbInstance.transaction("forwarded_files", "readwrite");
+          deleteTransaction.objectStore("forwarded_files").delete("active_forward");
+        }
+      } catch (err) {
+        console.warn("IndexedDB recovery failed:", err);
+      }
+    };
+
+    retrieveForwardedFile();
   }, []);
 
   // Configuration States
@@ -277,7 +301,7 @@ export default function UploadPage() {
           });
 
           chunksUploadedSoFar++;
-          setProgress(Math.round((chunksUploadedSoFar / (files.length * 2)) * 100));
+          setProgress(Math.min(99, Math.round((chunksUploadedSoFar / (files.length * 2)) * 100)));
         }
 
         // Keep metadata parameters (Key, IV vectors, chunk counts)
