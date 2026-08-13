@@ -9,8 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pdfsmaller/pdf-decrypt": "^1.0.1",
+    "@pdfsmaller/pdf-encrypt-lite": "^1.2.0",
     "firebase": "^12.17.0",
     "next": "16.2.12",
+    "nextjs-toploader": "^3.9.17",
+    "pdf-lib": "^1.17.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "remixicon": "^4.9.1"

@@ -24,7 +24,7 @@ export default function HomePage() {
     // Organize Category
     {
       name: "Merge PDF",
-      href: "/tools/merge",
+      href: "/tools/merge-pdf",
       desc: "Combine multiple PDF files into one document in any page order.",
       category: "Organize",
       color: "bg-blue-500/10 text-blue-600",
@@ -32,7 +32,7 @@ export default function HomePage() {
     },
     {
       name: "Split PDF",
-      href: "/tools/split",
+      href: "/tools/split-pdf",
       desc: "Extract specific page ranges or split each page into a separate PDF file.",
       category: "Organize",
       color: "bg-indigo-500/10 text-indigo-600",
@@ -40,7 +40,7 @@ export default function HomePage() {
     },
     {
       name: "Reorder Pages",
-      href: "/tools/reorder",
+      href: "/tools/reorder-pdf",
       desc: "Drag-and-drop page thumbnails to sort and rearrange pages visually.",
       category: "Organize",
       color: "bg-violet-500/10 text-violet-600",
@@ -48,7 +48,7 @@ export default function HomePage() {
     },
     {
       name: "Delete Pages",
-      href: "/tools/delete",
+      href: "/tools/delete-pdf",
       desc: "Remove unwanted pages from your document using a thumbnail grid.",
       category: "Organize",
       color: "bg-purple-500/10 text-purple-600",
@@ -74,11 +74,35 @@ export default function HomePage() {
     },
     {
       name: "Docx to PDF",
-      href: "/tools/word-to-pdf",
+      href: "/tools/doc-to-pdf",
       desc: "Convert Microsoft Word (.docx) documents into standard PDF format.",
       category: "Convert",
       badge: "Beta",
       color: "bg-sky-500/10 text-sky-500",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    },
+    {
+      name: "XLSX to PDF",
+      href: "/tools/excel-to-pdf",
+      desc: "Convert Excel sheets (.xlsx/.xls) into standard PDF format locally.",
+      category: "Convert",
+      color: "bg-emerald-500/10 text-emerald-500",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    },
+    {
+      name: "CSV to PDF",
+      href: "/tools/csv-to-pdf",
+      desc: "Convert CSV spreadsheets into clean visual PDF tables locally.",
+      category: "Convert",
+      color: "bg-teal-500/10 text-teal-600",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+    },
+    {
+      name: "Text to PDF",
+      href: "/tools/txt-to-pdf",
+      desc: "Convert plain text (.txt) and Markdown (.md) to styled PDF offline.",
+      category: "Convert",
+      color: "bg-slate-500/10 text-slate-600",
       icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     },
     {

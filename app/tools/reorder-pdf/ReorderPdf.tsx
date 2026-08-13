@@ -14,7 +14,7 @@ interface PageThumbnail {
   dataUrl: string;
 }
 
-export default function ReorderPdfPage() {
+export default function ReorderPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<PageThumbnail[]>([]);
@@ -23,6 +23,10 @@ export default function ReorderPdfPage() {
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Drag and Drop State
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Premium / Ads state
   const [isPremium, setIsPremium] = useState(false);
@@ -90,7 +94,7 @@ export default function ReorderPdfPage() {
       const thumbs: PageThumbnail[] = [];
       for (let i = 1; i <= count; i++) {
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 0.3 }); // Small thumbnail rendering scale
+        const viewport = page.getViewport({ scale: 0.35 });
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("2d");
         canvas.height = viewport.height;
@@ -110,7 +114,39 @@ export default function ReorderPdfPage() {
     }
   };
 
-  const movePage = (index: number, direction: "left" | "right") => {
+  // 1. Drag & Drop Event Handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    const updated = [...pages];
+    const [removed] = updated.splice(draggedIndex, 1);
+    updated.splice(index, 0, removed);
+
+    setPages(updated);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  // Accessibility Arrow Move handlers
+  const movePageByClick = (index: number, direction: "left" | "right") => {
     const updated = [...pages];
     const target = direction === "left" ? index - 1 : index + 1;
     if (target < 0 || target >= pages.length) return;
@@ -148,24 +184,46 @@ export default function ReorderPdfPage() {
     }
   };
 
-  const handleForwardToSecureShare = () => {
+  const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      try {
-        sessionStorage.setItem("safelyprint_forward_file_name", `Reordered_${file?.name}`);
-        sessionStorage.setItem("safelyprint_forward_file_data", reader.result as string);
-        sessionStorage.setItem("safelyprint_forward_file_type", "application/pdf");
-        window.location.href = "/upload";
-      } catch (err) {
-        alert("The PDF is too large to forward automatically.");
-      }
+    
+    const name = `Reordered_${file?.name}`;
+    const type = "application/pdf";
+
+    const openDb = (): Promise<IDBDatabase> => {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open("SafelyPrintDB", 1);
+        request.onupgradeneeded = (e: any) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("forwarded_files")) {
+            db.createObjectStore("forwarded_files");
+          }
+        };
+        request.onsuccess = (e: any) => resolve(e.target.result);
+        request.onerror = (e: any) => reject(e.target.error);
+      });
     };
-    reader.readAsDataURL(outputBlob);
+
+    try {
+      const dbInstance = await openDb();
+      const transaction = dbInstance.transaction("forwarded_files", "readwrite");
+      const store = transaction.objectStore("forwarded_files");
+
+      await new Promise<void>((resolve, reject) => {
+        const putRequest = store.put({ name, blob: outputBlob, type, timestamp: Date.now() }, "active_forward");
+        putRequest.onsuccess = () => resolve();
+        putRequest.onerror = () => reject(putRequest.error);
+      });
+
+      window.location.href = "/upload";
+    } catch (err) {
+      console.error(err);
+      alert("Failed to queue file database write locally. Please download the file instead.");
+    }
   };
 
   return (
-    <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
+    <div className={`min-h-screen w-full text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
       !isPremium ? "pb-16 lg:pb-0" : ""
     }`}>
       <Header />
@@ -174,10 +232,10 @@ export default function ReorderPdfPage() {
         
         {/* LEFT AD COLUMN */}
         {!isPremium && (
-          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-955/20">
+          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
+              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-550 tracking-wider">Advertisement</span>
+              <div className="text-center text-xs text-zinc-550 dark:text-zinc-400 space-y-2">
                 <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
                 <p className="font-bold">Upgrade to Premium</p>
                 <p className="text-[12px] leading-relaxed">Remove ads and upload up to 20 documents simultaneously.</p>
@@ -196,13 +254,13 @@ export default function ReorderPdfPage() {
               <i className="ri-drag-drop-line text-blue-600 dark:text-blue-500"></i> Organize PDF Pages
             </h1>
             <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Drag, rearrange, and sort the pages of your PDF file locally. Your file contents never upload to any external servers.
+              Drag and drop pages to rearrange their sorting order locally. Your file contents never leave your device.
             </p>
           </div>
 
           {!file && (
-            <div className="bg-white dark:bg-zinc-900 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
+              <div className="h-14 w-14 bg-blue-105 dark:bg-blue-900/20 text-blue-600 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
                 <i className="ri-menu-fold-line"></i>
               </div>
               <div>
@@ -228,43 +286,65 @@ export default function ReorderPdfPage() {
           {loadingPages && (
             <div className="text-center py-12 space-y-3">
               <div className="animate-spin h-8 w-8 text-blue-500 border-4 border-t-transparent rounded-full mx-auto" />
-              <p className="text-xs text-zinc-450">Generating page thumbnails locally...</p>
+              <p className="text-xs text-zinc-500">Generating page previews locally...</p>
             </div>
           )}
 
           {pages.length > 0 && !outputUrl && (
-            <div className="space-y-6">
-              {/* Pages Grid Layout */}
+            <div className="space-y-6 animate-in fade-in duration-200">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {pages.map((item, index) => (
-                  <div key={item.index} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 rounded-2xl flex flex-col items-center gap-3 relative shadow-xs">
-                    <span className="absolute top-2 left-2 bg-zinc-250 dark:bg-zinc-800 text-[10px] font-bold px-2 py-0.5 rounded text-zinc-600 dark:text-zinc-400">
-                      Page {index + 1}
-                    </span>
-                    <div className="w-full h-32 rounded-lg overflow-hidden border border-zinc-100 dark:border-zinc-800 mt-4 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-                      <img src={item.dataUrl} alt={`Page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+                {pages.map((item, index) => {
+                  const isDragged = draggedIndex === index;
+                  const isDragTarget = dragOverIndex === index;
+                  
+                  return (
+                    <div 
+                      key={item.index} 
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={`bg-white dark:bg-zinc-900 border rounded-2xl p-3 flex flex-col items-center gap-3 relative transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
+                        isDragged ? "opacity-40 scale-95 border-zinc-300 dark:border-zinc-700" : ""
+                      } ${
+                        isDragTarget && !isDragged
+                          ? "border-dashed border-blue-500 scale-105 bg-blue-500/5"
+                          : "border-zinc-200 dark:border-zinc-800"
+                      }`}
+                    >
+                      <span className="absolute top-2 left-2 bg-zinc-100 dark:bg-zinc-800 text-[10px] font-bold px-2 py-0.5 rounded text-zinc-650 dark:text-zinc-400">
+                        Page {index + 1}
+                      </span>
+                      <div className="w-full h-32 rounded-lg overflow-hidden border border-zinc-100 dark:border-zinc-800 mt-4 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950 pointer-events-none">
+                        <img src={item.dataUrl} alt={`Page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+                      </div>
+                      
+                      {/* Move controls */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => movePageByClick(index, "left")}
+                          disabled={index === 0}
+                          className="p-1 text-zinc-500 hover:text-blue-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 cursor-pointer"
+                        >
+                          <i className="ri-arrow-left-line"></i>
+                        </button>
+                        <span className="text-[10px] text-zinc-405 font-semibold select-none flex items-center gap-1">
+                          <i className="ri-drag-move-line"></i> Reorder
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => movePageByClick(index, "right")}
+                          disabled={index === pages.length - 1}
+                          className="p-1 text-zinc-500 hover:text-blue-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 cursor-pointer"
+                        >
+                          <i className="ri-arrow-right-line"></i>
+                        </button>
+                      </div>
                     </div>
-                    
-                    {/* Move controls */}
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => movePage(index, "left")}
-                        disabled={index === 0}
-                        className="p-1 text-zinc-500 hover:text-blue-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 cursor-pointer"
-                      >
-                        <i className="ri-arrow-left-line"></i>
-                      </button>
-                      <span className="text-[10px] text-zinc-400">Sort</span>
-                      <button
-                        onClick={() => movePage(index, "right")}
-                        disabled={index === pages.length - 1}
-                        className="p-1 text-zinc-500 hover:text-blue-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded disabled:opacity-30 cursor-pointer"
-                      >
-                        <i className="ri-arrow-right-line"></i>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3.5">
@@ -273,7 +353,7 @@ export default function ReorderPdfPage() {
                     setFile(null);
                     setPages([]);
                   }}
-                  className="px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition cursor-pointer"
+                  className="px-5 py-2.5 bg-zinc-150 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-855 dark:text-white font-bold rounded-xl text-xs border border-zinc-250 dark:border-zinc-700 transition cursor-pointer"
                 >
                   Change File
                 </button>
@@ -288,7 +368,6 @@ export default function ReorderPdfPage() {
             </div>
           )}
 
-          {/* Success screen */}
           {outputUrl && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-6 shadow-sm animate-in fade-in duration-300">
               <div className="flex justify-center text-emerald-500 text-5xl">
@@ -332,8 +411,8 @@ export default function ReorderPdfPage() {
         {!isPremium && (
           <aside className="flex md:hidden lg:flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
+              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-550 tracking-wider">Advertisement</span>
+              <div className="text-center text-xs text-zinc-550 dark:text-zinc-400 space-y-2">
                 <i className="ri-file-zip-line text-blue-500 text-xl"></i>
                 <p className="font-bold">Advanced PDF Tools</p>
                 <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
@@ -351,8 +430,8 @@ export default function ReorderPdfPage() {
         <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center z-45 transition-colors shadow-lg">
           <div className="w-full max-w-lg mx-auto flex items-center justify-between px-4 h-full text-xs text-zinc-700 dark:text-zinc-300">
             <div className="flex items-center gap-2">
-              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-500">AD</span>
-              <p className="font-semibold text-[12px] text-zinc-500 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
+              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-550">AD</span>
+              <p className="font-semibold text-[12px] text-zinc-550 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
             </div>
             <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
               Upgrade
