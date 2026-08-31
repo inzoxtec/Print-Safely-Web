@@ -11,6 +11,13 @@ import Footer from "@/app/components/Footer";
 
 type SignatureMode = "type" | "draw" | "upload";
 
+interface PageImage {
+  url: string;
+  w: number;
+  h: number;
+  originalIndex: number;
+}
+
 interface SignatureOverlay {
   pageIndex: number;
   x: number; // percentage from left (0 to 100)
@@ -34,7 +41,9 @@ export default function SignPdf() {
 
   // Modal & Workspace UI States
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(85); // Dynamic default zoom
+  const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Signature Creation State
   const [sigMode, setSigMode] = useState<SignatureMode>("type");
@@ -53,7 +62,7 @@ export default function SignPdf() {
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [pdfPageImages, setPdfPageImages] = useState<string[]>([]);
+  const [pdfPageImages, setPdfPageImages] = useState<PageImage[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadSigInputRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +104,17 @@ export default function SignPdf() {
     }
   }, [user]);
 
+  // Bind Shortcuts (Esc for Fullscreen exit)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Loader for PDFJS script
   const loadPdfjs = async () => {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
@@ -126,6 +146,17 @@ export default function SignPdf() {
     setPdfPageImages([]);
     setOverlay(null);
     setSignatureImage(null);
+    setActivePageIndex(0);
+
+    // Set starting zoom dynamically based on screens
+    const screenW = window.innerWidth;
+    if (screenW < 768) {
+      setZoom(50);
+    } else if (screenW < 1024) {
+      setZoom(70);
+    } else {
+      setZoom(85);
+    }
 
     setConverting(true);
     setProgressMsg("Loading PDF engine...");
@@ -136,7 +167,7 @@ export default function SignPdf() {
       const loadingTask = activePdfJs.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
       const pagesCount = pdf.numPages;
-      const urls: string[] = [];
+      const pagesData: PageImage[] = [];
 
       for (let i = 1; i <= pagesCount; i++) {
         const page = await pdf.getPage(i);
@@ -147,10 +178,15 @@ export default function SignPdf() {
         canvas.height = viewport.height;
         if (ctx) {
           await page.render({ canvasContext: ctx, viewport }).promise;
-          urls.push(canvas.toDataURL("image/png"));
+          pagesData.push({
+            url: canvas.toDataURL("image/png"),
+            w: viewport.width,
+            h: viewport.height,
+            originalIndex: i - 1
+          });
         }
       }
-      setPdfPageImages(urls);
+      setPdfPageImages(pagesData);
       setIsModalOpen(true);
     } catch (err) {
       console.error(err);
@@ -310,7 +346,7 @@ export default function SignPdf() {
     setIsModalOpen(false);
 
     setOverlay({
-      pageIndex: 0,
+      pageIndex: activePageIndex,
       x: 35,
       y: 40,
       width: 180,
@@ -356,8 +392,8 @@ export default function SignPdf() {
       let newLeft = startLeft + deltaX;
       let newTop = startTop + deltaY;
 
-      newLeft = Math.max(0, Math.min(newLeft, container.clientWidth - overlay.width));
-      newTop = Math.max(0, Math.min(newTop, container.clientHeight - overlay.height));
+      newLeft = Math.max(0, Math.min(newLeft, container.clientWidth - overlay.width * (zoom / 100)));
+      newTop = Math.max(0, Math.min(newTop, container.clientHeight - overlay.height * (zoom / 100)));
 
       setOverlay(prev => prev ? {
         ...prev,
@@ -388,8 +424,8 @@ export default function SignPdf() {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      const newWidth = Math.max(50, Math.min(400, startWidth + deltaX));
-      const newHeight = Math.max(20, Math.min(200, startHeight + deltaY));
+      const newWidth = Math.max(50, Math.min(400, startWidth + deltaX / (zoom / 100)));
+      const newHeight = Math.max(20, Math.min(200, startHeight + deltaY / (zoom / 100)));
 
       setOverlay(prev => prev ? {
         ...prev,
@@ -527,16 +563,16 @@ export default function SignPdf() {
     <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
       !isPremium ? "pb-16 lg:pb-0" : ""
     }`}>
-      <Header />
+      {!isFullscreen && <Header />}
 
-      <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row w-full max-w-[100vw] justify-center overflow-hidden">
         
         {/* LEFT COLUMN: Advertising */}
-        {!isPremium && (!file || outputUrl) && (
+        {!isPremium && !isFullscreen && (
           <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-555 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
+              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
+              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
                 <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
                 <p className="font-bold">Upgrade to Premium</p>
                 <p className="text-[12px] leading-relaxed">Remove ads and unlock pro features.</p>
@@ -549,24 +585,84 @@ export default function SignPdf() {
         )}
 
         {/* CENTER MAIN WORKSPACE */}
-        <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-6 flex flex-col items-center justify-between">
-          <div className="w-full space-y-2 text-left">
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-quill-pen-line text-blue-600 dark:text-blue-500"></i> Sign PDF Document
-            </h1>
-            <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Stamp signatures, initials, or handwriting onto PDF layouts offline in RAM. Keep documents 100% private.
-            </p>
+        <main className={`flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-6 flex flex-col items-center justify-start ${
+          isFullscreen 
+            ? "fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 h-screen max-w-full" 
+            : ""
+        }`}>
+          <div className="w-full space-y-2 text-left flex items-start justify-between">
+            <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
+                  <i className="ri-quill-pen-line text-blue-600 dark:text-blue-500"></i> Sign PDF Document
+                  
+                  {file && (
+                    <button
+                      onClick={() => setIsFullscreen(!isFullscreen)}
+                      className="ml-2.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-800 dark:hover:bg-indigo-800 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition shadow-sm text-white"
+                      title={isFullscreen ? "Exit Fullscreen (Esc)" : "Fullscreen Workspace"}
+                    >
+                      <i className={isFullscreen ? "ri-fullscreen-exit-line" : "ri-fullscreen-line"}></i>
+                      {isFullscreen ? "Exit" : "Fullscreen"}
+                    </button>
+                  )}
+                </h1>
+                <p className="text-sm text-zinc-700 dark:text-zinc-400">
+                  Stamp signatures, initials, or handwriting onto PDF layouts offline in RAM. Keep documents 100% private.
+                </p>
+              </div>
+            </div>
           </div>
 
+          {/* PAGE THUMBNAILS HORIZONTAL SCROLL TIMELINE IN MAIN PANEL */}
+          {file && pdfPageImages.length > 0 && !outputUrl && !converting && (
+            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm space-y-2.5 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Select Page to Sign</span>
+                <span className="text-[10px] font-bold text-blue-500 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/35 rounded-full">
+                  Total Pages: {pdfPageImages.length}
+                </span>
+              </div>
+              
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
+                {pdfPageImages.map((page, idx) => {
+                  const isActive = idx === activePageIndex;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => { setActivePageIndex(idx); }}
+                      className={`relative group flex-shrink-0 w-24 h-32 rounded-xl border p-2 cursor-pointer transition flex flex-col justify-between bg-zinc-50 dark:bg-zinc-950 ${
+                        isActive 
+                          ? "border-blue-500 ring-2 ring-blue-500/25 bg-blue-500/[0.02]" 
+                          : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-[10px] font-extrabold text-zinc-400 leading-none">
+                        <span>PAGE {idx + 1}</span>
+                      </div>
+                      
+                      <div className="flex-1 flex items-center justify-center p-1 overflow-hidden">
+                        <img 
+                          src={page.url} 
+                          alt={`page-${idx}`} 
+                          className="max-h-20 object-contain shadow-sm rounded border border-zinc-250/50 dark:border-zinc-800" 
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {!file && (
-            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm my-auto">
-              <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-650 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
+            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
+              <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-655 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
                 <i className="ri-quill-pen-fill"></i>
               </div>
               <div>
                 <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select PDF document to sign</p>
-                <p className="text-[14px] text-zinc-405 dark:text-zinc-550 mt-1">Upload a PDF to apply digital cursive signatures.</p>
+                <p className="text-[14px] text-zinc-400 dark:text-zinc-500 mt-1">Upload a PDF to apply digital cursive signatures.</p>
               </div>
               <input
                 type="file"
@@ -585,15 +681,16 @@ export default function SignPdf() {
           )}
 
           {converting && (
-            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200 my-auto">
+            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
                 <p className="text-sm font-bold text-zinc-900 dark:text-white">Processing Document...</p>
-                <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
+                <p className="text-xs text-zinc-500 font-mono">{progressMsg}</p>
               </div>
             </div>
           )}
 
+          {/* Interactive Annotation Workspace */}
           {file && pdfPageImages.length > 0 && !outputUrl && !converting && (
             <div className="w-full space-y-6 flex flex-col items-center">
               
@@ -612,7 +709,7 @@ export default function SignPdf() {
                   >
                     A-
                   </button>
-                  <span className="text-xs font-extrabold font-mono w-12 text-center select-none text-zinc-650">{zoom}%</span>
+                  <span className="text-xs font-extrabold font-mono w-12 text-center select-none text-zinc-600">{zoom}%</span>
                   <button
                     onClick={() => setZoom(z => Math.min(150, z + 10))}
                     className="h-8 px-2.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs font-black cursor-pointer select-none"
@@ -640,73 +737,102 @@ export default function SignPdf() {
                 </div>
               </div>
 
-              {/* PDF Pages rendering stream */}
-              <div className="w-full flex flex-col items-center gap-8 max-h-[70vh] overflow-y-auto pr-1 py-2 bg-zinc-100/50 dark:bg-zinc-950/20 p-4 rounded-3xl border border-zinc-200/50 dark:border-zinc-850">
-                {pdfPageImages.map((pageImg, idx) => (
-                  <div key={idx} className="flex flex-col items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider select-none">Page {idx + 1}</span>
-                    
-                    <div
-                      id={`pdf-page-container-${idx}`}
-                      onClick={(e) => handlePageClickPlacement(idx, e)}
-                      className="relative bg-white border border-zinc-300 shadow-md max-w-full overflow-hidden select-none cursor-crosshair transition-all"
-                      style={{ 
-                        width: `${560 * (zoom / 100)}px`,
-                        height: "auto"
-                      }}
+              {/* Applied Modifications (Layers) Badge Area */}
+              {signatureImage && overlay && (
+                <div className="w-full bg-zinc-100/60 dark:bg-zinc-900/40 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-2 text-left animate-in fade-in">
+                  <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-wider mr-1 select-none">Applied Layers:</span>
+                  
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-zinc-900 border border-zinc-250 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 shadow-sm">
+                    <i className="ri-quill-pen-line text-blue-500"></i>
+                    <span>Signature Layer</span>
+                    <span className="text-[9px] text-zinc-400 font-normal select-none">(Page {overlay.pageIndex + 1})</span>
+                    <button
+                      onClick={() => { setOverlay(null); setSignatureImage(null); }}
+                      className="text-zinc-400 hover:text-red-500 transition cursor-pointer font-bold leading-none text-sm ml-0.5"
+                      title="Remove Signature"
                     >
-                      <img
-                        src={pageImg}
-                        alt={`PDF Page ${idx}`}
-                        className="w-full pointer-events-none block"
-                      />
+                      &times;
+                    </button>
+                  </span>
+                </div>
+              )}
 
-                      {/* Active Signature Placement Overlay */}
-                      {overlay && overlay.pageIndex === idx && signatureImage && (
-                        <div
-                          onMouseDown={handleDragOverlay}
-                          className="absolute border-2 border-dashed border-blue-500 bg-blue-500/10 cursor-move flex items-center justify-center group signature-draggable-overlay animate-in zoom-in-95 duration-100"
-                          style={{
-                            left: `${overlay.x}%`,
-                            top: `${overlay.y}%`,
-                            width: `${overlay.width * (zoom / 100)}px`,
-                            height: `${overlay.height * (zoom / 100)}px`
-                          }}
-                        >
-                          <img
-                            src={signatureImage}
-                            alt="placed signature"
-                            className="max-h-full max-w-full pointer-events-none object-contain p-1"
-                          />
+              {/* Active PDF Page Container Area */}
+              {(() => {
+                const activePage = pdfPageImages[activePageIndex] || pdfPageImages[0];
+                if (!activePage) return null;
 
-                          {/* Resizable corner handle */}
+                return (
+                  <div className="w-full bg-zinc-100/50 dark:bg-zinc-950/20 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-auto h-[600px] max-h-[70vh]">
+                    <div className="text-center mb-2">
+                      <span className="text-[10px] block mb-2 font-bold text-zinc-400 uppercase tracking-wider select-none">
+                        PAGE {activePageIndex + 1} OF {pdfPageImages.length}
+                      </span>
+
+                      <div
+                        id={`pdf-page-container-${activePageIndex}`}
+                        onClick={(e) => handlePageClickPlacement(activePageIndex, e)}
+                        className="relative mx-auto bg-white border border-zinc-300 shadow-md select-none overflow-hidden cursor-crosshair"
+                        style={{ 
+                          width: `${560 * (zoom / 100)}px`,
+                          height: `${(560 * (activePage.h / activePage.w)) * (zoom / 100)}px`
+                        }}
+                      >
+                        {/* PDF Page image layer */}
+                        <img
+                          src={activePage.url}
+                          alt={`Active Page ${activePageIndex}`}
+                          className="absolute inset-0 w-full h-full pointer-events-none block"
+                        />
+
+                        {/* Active Signature Placement Overlay */}
+                        {overlay && overlay.pageIndex === activePageIndex && signatureImage && (
                           <div
-                            onMouseDown={handleResizeOverlay}
-                            className="absolute bottom-0 right-0 h-4 w-4 bg-blue-600 border border-white cursor-se-resize rounded-tl-md flex items-center justify-center shadow"
+                            onMouseDown={handleDragOverlay}
+                            className="absolute border-2 border-dashed border-blue-500 bg-blue-500/10 cursor-move flex items-center justify-center group signature-draggable-overlay animate-in zoom-in-95 duration-100 z-30"
+                            style={{
+                              left: `${overlay.x}%`,
+                              top: `${overlay.y}%`,
+                              width: `${overlay.width * (zoom / 100)}px`,
+                              height: `${overlay.height * (zoom / 100)}px`
+                            }}
                           >
-                            <svg className="h-2 w-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 13v6m0 0h-6m6 0L13 13" />
-                            </svg>
+                            <img
+                              src={signatureImage}
+                              alt="placed signature"
+                              className="max-h-full max-w-full pointer-events-none object-contain p-1"
+                            />
+
+                            {/* Resizable corner handle */}
+                            <div
+                              onMouseDown={handleResizeOverlay}
+                              className="absolute bottom-0 right-0 h-4 w-4 bg-blue-600 border border-white cursor-se-resize rounded-tl-md flex items-center justify-center shadow z-40"
+                            >
+                              <svg className="h-2 w-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 13v6m0 0h-6m6 0L13 13" />
+                              </svg>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
             </div>
           )}
 
           {/* Success Screen */}
           {outputUrl && (
-            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-6 shadow-sm animate-in fade-in duration-300 my-auto">
-              <div className="flex justify-center text-emerald-555 text-5xl">
+            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-6 shadow-sm animate-in fade-in duration-300">
+              <div className="flex justify-center text-emerald-500 text-5xl">
                 <i className="ri-checkbox-circle-fill text-emerald-500"></i>
               </div>
               <div className="space-y-1.5 text-center">
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Document Signed Successfully!</h3>
-                <p className="text-xs text-zinc-455 dark:text-zinc-400">The signature has been permanently rendered onto the PDF.</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">The signature has been permanently rendered onto the PDF.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
@@ -730,8 +856,9 @@ export default function SignPdf() {
                   setFile(null);
                   setOverlay(null);
                   setSignatureImage(null);
+                  setActivePageIndex(0);
                 }}
-                className="text-xs font-semibold text-zinc-405 hover:underline cursor-pointer block mx-auto font-bold"
+                className="text-xs font-semibold text-zinc-400 hover:underline cursor-pointer block mx-auto font-bold"
               >
                 Sign Another PDF
               </button>
@@ -739,12 +866,12 @@ export default function SignPdf() {
           )}
         </main>
 
-        {/* RIGHT AD COLUMN */}
-        {!isPremium && (
-          <aside className="flex md:hidden lg:flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
+        {/* RIGHT AD COLUMN (Shown always to preserve spacing layout) */}
+        {!isPremium && !isFullscreen && (
+          <aside className="flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-555 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
+              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
+              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
                 <i className="ri-file-zip-line text-blue-500 text-xl"></i>
                 <p className="font-bold">Advanced PDF Tools</p>
                 <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
@@ -772,7 +899,7 @@ export default function SignPdf() {
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-zinc-405 hover:text-zinc-650 dark:text-zinc-500 dark:hover:text-zinc-300 text-lg font-bold leading-none cursor-pointer"
+                className="text-zinc-400 hover:text-zinc-650 dark:text-zinc-500 dark:hover:text-zinc-300 text-lg font-bold leading-none cursor-pointer"
               >
                 &times;
               </button>
@@ -798,33 +925,35 @@ export default function SignPdf() {
             {/* Type Option */}
             {sigMode === "type" && (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Type Your Name</label>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Signature Name</label>
                   <input
                     type="text"
                     value={typedName}
                     onChange={(e) => setTypedName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    className="w-full px-3.5 py-2.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold"
+                    placeholder="Enter name..."
+                    className="w-full px-3.5 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-bold text-zinc-900 dark:text-white"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Select font style</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Choose Signature Font Style</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
                     {SIGN_FONTS.map((font) => (
-                      <button
+                      <div
                         key={font.name}
                         onClick={() => setSelectedFont(font)}
-                        className={`p-3 text-left rounded-xl border text-xl truncate transition cursor-pointer ${
+                        className={`p-3 rounded-xl border cursor-pointer transition text-center flex flex-col justify-center bg-zinc-50 dark:bg-zinc-950 ${
                           selectedFont.name === font.name
-                            ? "border-blue-500 bg-blue-50/10 text-blue-600 dark:text-blue-400"
-                            : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950"
+                            ? "border-blue-500 bg-blue-500/5 ring-1 ring-blue-500/25"
+                            : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
                         }`}
-                        style={{ fontFamily: font.name }}
                       >
-                        {typedName || "John Doe"}
-                      </button>
+                        <span className="text-[10px] text-zinc-400 uppercase font-mono block text-left mb-1">{font.name}</span>
+                        <p className="text-xl truncate text-zinc-900 dark:text-white" style={{ fontFamily: font.family }}>
+                          {typedName || "Signature"}
+                        </p>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -833,13 +962,22 @@ export default function SignPdf() {
 
             {/* Draw Option */}
             {sigMode === "draw" && (
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Draw Signature</label>
+              <div className="space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Draw Signature Ink</label>
+                  <button
+                    onClick={clearCanvas}
+                    className="text-[10px] font-bold text-red-500 hover:underline uppercase tracking-wider cursor-pointer"
+                  >
+                    Clear Slate
+                  </button>
+                </div>
+
+                <div className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl h-44 overflow-hidden relative">
                   <canvas
                     ref={drawCanvasRef}
-                    width={520}
-                    height={160}
+                    width={500}
+                    height={176}
                     onMouseDown={startDrawing}
                     onMouseMove={draw}
                     onMouseUp={stopDrawing}
@@ -847,26 +985,49 @@ export default function SignPdf() {
                     onTouchStart={startDrawing}
                     onTouchMove={draw}
                     onTouchEnd={stopDrawing}
-                    className="w-full h-40 bg-white border border-zinc-300 rounded-2xl cursor-crosshair touch-none shadow-inner"
+                    className="w-full h-full bg-transparent cursor-crosshair block"
                   />
+                  <div className="absolute bottom-2.5 left-3 text-[10px] font-bold text-zinc-400 tracking-wide pointer-events-none select-none">
+                    Write signature here using mouse/trackpad
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={clearCanvas}
-                    className="px-3.5 py-2 bg-zinc-150 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-700 dark:text-zinc-200 rounded-xl text-xs font-bold cursor-pointer"
-                  >
-                    Clear Canvas
-                  </button>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {/* Ink color selection */}
                   <div className="flex items-center gap-2">
-                    <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Thickness:</label>
-                    <input
-                      type="range"
-                      min="2"
-                      max="6"
-                      value={brushWidth}
-                      onChange={(e) => setBrushWidth(parseInt(e.target.value))}
-                      className="w-20 h-1 appearance-none bg-zinc-200 dark:bg-zinc-800 rounded-lg cursor-pointer accent-blue-600"
-                    />
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ink Color:</span>
+                    <div className="flex gap-1.5">
+                      {["#000000", "#002fa7", "#a00000"].map((col) => (
+                        <button
+                          key={col}
+                          onClick={() => setDrawColor(col)}
+                          className={`h-5.5 w-5.5 rounded-full border border-white dark:border-zinc-900 cursor-pointer transition ${
+                            drawColor === col ? "scale-110 ring-2 ring-blue-500/25" : ""
+                          }`}
+                          style={{ backgroundColor: col }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Brush width Selection */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ink Thickness:</span>
+                    <div className="flex gap-1 bg-zinc-150 dark:bg-zinc-950 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                      {[2, 3, 4].map((widthVal) => (
+                        <button
+                          key={widthVal}
+                          onClick={() => setBrushWidth(widthVal)}
+                          className={`h-6 px-2 text-[10px] font-bold rounded cursor-pointer transition ${
+                            brushWidth === widthVal
+                              ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm"
+                              : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                          }`}
+                        >
+                          {widthVal}px
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -875,64 +1036,38 @@ export default function SignPdf() {
             {/* Upload Option */}
             {sigMode === "upload" && (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Upload Signature File (PNG/JPG)</label>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Upload Signature Image file</label>
+                <div
+                  onClick={() => uploadSigInputRef.current?.click()}
+                  className="w-full bg-zinc-50 dark:bg-zinc-950 border-2 border-dashed border-zinc-200 dark:border-zinc-800 hover:border-blue-500 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2"
+                >
+                  <i className="ri-image-add-line text-2xl text-zinc-400"></i>
+                  <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                    {uploadedSigUrl ? "Choose another signature image" : "Select PNG / JPEG signature image"}
+                  </span>
+                  <span className="text-[10px] text-zinc-400">(Transparent background recommended)</span>
                   <input
                     type="file"
                     ref={uploadSigInputRef}
-                    accept="image/png,image/jpeg"
+                    accept="image/*"
                     onChange={handleSignatureUpload}
                     className="hidden"
                   />
-                  {!uploadedSigUrl ? (
-                    <div
-                      onClick={() => uploadSigInputRef.current?.click()}
-                      className="h-32 w-full border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-950/20 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition text-center p-6"
-                    >
-                      <i className="ri-image-add-line text-zinc-400 text-2xl"></i>
-                      <span className="text-xs text-zinc-455 font-bold">Select transparent PNG/JPG file</span>
-                    </div>
-                  ) : (
-                    <div className="relative group rounded-2xl border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950">
-                      <img src={uploadedSigUrl} alt="uploaded signature" className="h-24 w-full object-contain mx-auto" />
-                      <button
-                        onClick={() => setUploadedSigUrl(null)}
-                        className="absolute top-2 right-2 h-6 w-6 bg-red-600 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-700 shadow cursor-pointer font-bold"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  )}
                 </div>
+
+                {uploadedSigUrl && (
+                  <div className="p-3 bg-zinc-100/50 dark:bg-zinc-950/20 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex justify-center items-center h-28 max-w-sm mx-auto overflow-hidden animate-in fade-in">
+                    <img src={uploadedSigUrl} alt="uploaded signature preview" className="max-h-full max-w-full object-contain" />
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Ink Color Selector */}
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Ink Color</label>
-              <div className="flex gap-3">
-                {[
-                  { value: "#000000", label: "Charcoal" },
-                  { value: "#002fa7", label: "Royal Blue" },
-                  { value: "#a00000", label: "Crimson" }
-                ].map((color) => (
-                  <button
-                    key={color.value}
-                    onClick={() => setDrawColor(color.value)}
-                    className="flex items-center gap-1.5 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition"
-                  >
-                    <span className="h-3.5 w-3.5 rounded-full border border-white dark:border-zinc-900" style={{ backgroundColor: color.value }} />
-                    <span className={drawColor === color.value ? "text-blue-500 font-bold" : "text-zinc-650"}>{color.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Modal Bottom Actions */}
-            <div className="border-t border-zinc-150 dark:border-zinc-850 pt-4 flex items-center justify-end gap-3">
+            {/* Modal Actions */}
+            <div className="flex justify-end gap-3 border-t border-zinc-150 dark:border-zinc-850 pt-4">
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs cursor-pointer"
+                className="px-4.5 py-2 bg-zinc-100 hover:bg-zinc-250 dark:bg-zinc-800 dark:hover:bg-zinc-755 text-zinc-850 dark:text-zinc-200 font-bold rounded-xl text-xs transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -944,21 +1079,6 @@ export default function SignPdf() {
               </button>
             </div>
 
-          </div>
-        </div>
-      )}
-
-      {/* MOBILE BOTTOM BANNER */}
-      {!isPremium && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center z-45 transition-colors shadow-lg">
-          <div className="w-full max-w-lg mx-auto flex items-center justify-between px-4 h-full text-xs text-zinc-700 dark:text-zinc-300">
-            <div className="flex items-center gap-2">
-              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-550">AD</span>
-              <p className="font-semibold text-[12px] text-zinc-555 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
-            </div>
-            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
-              Upgrade
-            </Link>
           </div>
         </div>
       )}

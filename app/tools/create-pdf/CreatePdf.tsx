@@ -1,4 +1,4 @@
-// app/tools/edit-pdf/EditPdf.tsx
+// app/tools/create-pdf/CreatePdf.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -9,37 +9,40 @@ import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 
-type EditTool = "select" | "text" | "image" | "shape" | "draw" | "eraser";
+type CreateTool = "select" | "text" | "image" | "shape" | "draw" | "eraser";
 type ShapeType = "rectangle" | "circle";
 type FontFamily = "Helvetica" | "Courier" | "TimesRoman";
+type FontStyle = "normal" | "bold" | "italic" | "boldItalic";
+type TextAlignment = "left" | "center" | "right";
 
-interface PageImage {
-  url: string;
-  w: number;
-  h: number;
-  originalIndex: number; // 0-based original page index
+interface CustomPage {
+  id: string;
+  w: number; // A4 standard width reference (595 px)
+  h: number; // A4 standard height reference (842 px)
 }
 
-interface EditElement {
+interface CreateElement {
   id: string;
-  pageIndex: number; // current mapped index in pdfPageImages
+  pageId: string;
   type: "text" | "image" | "shape";
   x: number; // percentage from left
   y: number; // percentage from top
   width: number; // CSS pixels width
   height: number; // CSS pixels height
   
-  // Text element attributes
+  // Text attributes
   text?: string;
   color?: string;
   bgColor?: string;
   fontSize?: number;
   fontFamily?: FontFamily;
+  fontStyle?: FontStyle;
+  alignment?: TextAlignment;
 
-  // Image element attributes
+  // Image attributes
   imageUrl?: string; // base64 DataURL
 
-  // Shape element attributes
+  // Shape attributes
   shapeType?: ShapeType;
   fillColor?: string;
   borderColor?: string;
@@ -47,62 +50,73 @@ interface EditElement {
 
 interface HistoryItem {
   type: "canvas_draw" | "element_add" | "element_delete" | "element_drag" | "element_resize";
-  pageIndex: number;
-  canvasState?: string; // transparent drawing state before stroke
+  pageId: string;
+  canvasState?: string; // drawing state before stroke
   elementId?: string;
-  element?: EditElement;
+  element?: CreateElement;
   beforeCoords?: { x: number; y: number; w: number; h: number };
 }
 
-export default function EditPdf() {
+interface TextSegment {
+  text: string;
+  isBold: boolean;
+}
+
+export default function CreatePdf() {
   const { user } = useAuth();
-  const [file, setFile] = useState<File | null>(null);
   const [isPremium, setIsPremium] = useState(false);
 
-  // Layout & Workspace States
-  const [activeTool, setActiveTool] = useState<EditTool>("select");
-  const [strokeColor, setStrokeColor] = useState("#000000"); // black
-  const [brushWidth, setBrushWidth] = useState(4);
-  const [zoom, setZoom] = useState(85); // Dynamic default zoom
+  // Layout & Slides States (Starts with one blank page)
+  const [pages, setPages] = useState<CustomPage[]>([
+    { id: Math.random().toString(36).substring(2, 9), w: 595, h: 842 }
+  ]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [activeTool, setActiveTool] = useState<CreateTool>("select");
+  const [strokeColor, setStrokeColor] = useState("#000000");
+  const [brushWidth, setBrushWidth] = useState(4);
+  const [zoom, setZoom] = useState(85);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Drag & Resize Elements States
-  const [elements, setElements] = useState<EditElement[]>([]);
+  // Drag & Selection States
+  const [elements, setElements] = useState<CreateElement[]>([]);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
 
-  // Modal Configurations (Text / Image / Shape)
+  // Modal Configurations
   const [isTextModalOpen, setIsTextModalOpen] = useState(false);
   const [textVal, setTextVal] = useState("");
   const [textColor, setTextColor] = useState("#000000");
   const [textBgColor, setTextBgColor] = useState("transparent");
   const [textFontSize, setTextFontSize] = useState(14);
   const [textFontFamily, setTextFontFamily] = useState<FontFamily>("Helvetica");
-  const [pendingCoords, setPendingCoords] = useState<{ pageIndex: number; x: number; y: number } | null>(null);
+  const [textFontStyle, setTextFontStyle] = useState<FontStyle>("normal");
+  const [textAlignment, setTextAlignment] = useState<TextAlignment>("left");
+  const [pendingCoords, setPendingCoords] = useState<{ pageId: string; x: number; y: number } | null>(null);
 
   const [isShapeModalOpen, setIsShapeModalOpen] = useState(false);
   const [selectedShapeType, setSelectedShapeType] = useState<ShapeType>("rectangle");
   const [shapeFillColor, setShapeFillColor] = useState("rgba(59, 130, 246, 0.4)");
 
-  // Drawing states mapped by page index
-  const [canvasDrawings, setCanvasDrawings] = useState<{ [pageIndex: number]: string }>({});
+  // Freehand Drawings Cache by Page ID
+  const [canvasDrawings, setCanvasDrawings] = useState<{ [pageId: string]: string }>({});
 
-  // Action states
+  // Compile States
   const [converting, setConverting] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  const [pdfPageImages, setPdfPageImages] = useState<PageImage[]>([]);
 
-  // Undo & Event states
+  // Undo States
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const canvasSnapshotBeforeStroke = useRef<string | null>(null);
   const dragSnapshot = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageUploadRef = useRef<HTMLInputElement | null>(null);
-  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const canvasRefs = useRef<{ [pageId: string]: HTMLCanvasElement | null }>({});
   const isDrawing = useRef(false);
+
+  // Input Field References for bolding selections
+  const modalTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editorInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync premium status
   useEffect(() => {
@@ -126,7 +140,19 @@ export default function EditPdf() {
     }
   }, [user]);
 
-  // Bind shortcuts (Ctrl+Z & Escape for Fullscreen)
+  // Dynamic zoom on screen sizes
+  useEffect(() => {
+    const screenW = window.innerWidth;
+    if (screenW < 768) {
+      setZoom(50);
+    } else if (screenW < 1024) {
+      setZoom(70);
+    } else {
+      setZoom(85);
+    }
+  }, []);
+
+  // Keyboard events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
@@ -138,20 +164,19 @@ export default function EditPdf() {
       }
     };
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [history, elements]);
 
-  // Restore canvas drawings when active page index changes
+  // Restore Drawings when Page index changes
   useEffect(() => {
-    if (!file || pdfPageImages.length === 0) return;
-    const canvas = canvasRefs.current[activePageIndex];
+    const activePage = pages[activePageIndex];
+    if (!activePage) return;
+    const canvas = canvasRefs.current[activePage.id];
     if (canvas) {
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const savedState = canvasDrawings[activePageIndex];
+        const savedState = canvasDrawings[activePage.id];
         if (savedState) {
           const img = new Image();
           img.src = savedState;
@@ -161,129 +186,105 @@ export default function EditPdf() {
         }
       }
     }
-  }, [activePageIndex, file, pdfPageImages]);
+  }, [activePageIndex, pages]);
 
-  const loadPdfjs = async () => {
-    if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
-    return new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
-      script.onload = () => {
-        const pdfjs = (window as any).pdfjsLib;
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
-        resolve(pdfjs);
-      };
-      script.onerror = () => reject(new Error("Failed to load PDFJS"));
-      document.head.appendChild(script);
-    });
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    const selectedFile = e.target.files[0];
-    if (selectedFile.type !== "application/pdf" && !selectedFile.name.endsWith(".pdf")) {
-      alert("Please upload a valid PDF.");
-      return;
-    }
-
-    setFile(selectedFile);
-    setOutputUrl(null);
-    setOutputBlob(null);
-    setPdfPageImages([]);
-    setElements([]);
-    setHistory([]);
-    setCanvasDrawings({});
-    setActivePageIndex(0);
-    canvasRefs.current = [];
-
-    // Set starting zoom dynamically based on screens
-    const screenW = window.innerWidth;
-    if (screenW < 768) {
-      setZoom(50);
-    } else if (screenW < 1024) {
-      setZoom(70);
-    } else {
-      setZoom(85);
-    }
-
-    setConverting(true);
-    setProgressMsg("Loading PDF engine...");
-    try {
-      const activePdfJs = await loadPdfjs();
-      setProgressMsg("Rendering document pages...");
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      const loadingTask = activePdfJs.getDocument({ data: arrayBuffer });
-      const pdf = await loadingTask.promise;
-      const pagesCount = pdf.numPages;
-      const pagesData: PageImage[] = [];
-
-      for (let i = 1; i <= pagesCount; i++) {
-        const page = await pdf.getPage(i);
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        const viewport = page.getViewport({ scale: 1.5 });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        if (ctx) {
-          await page.render({ canvasContext: ctx, viewport }).promise;
-          pagesData.push({
-            url: canvas.toDataURL("image/png"),
-            w: viewport.width,
-            h: viewport.height,
-            originalIndex: i - 1
-          });
-        }
+  // Markdown Parser to isolate Bold parts (**text**)
+  const parseRichText = (str: string): TextSegment[] => {
+    const segments: TextSegment[] = [];
+    const regex = /(\*\*.*?\*\*)/g;
+    const parts = str.split(regex);
+    for (const part of parts) {
+      if (part.startsWith("**") && part.endsWith("**")) {
+        segments.push({
+          text: part.slice(2, -2),
+          isBold: true
+        });
+      } else if (part) {
+        segments.push({
+          text: part,
+          isBold: false
+        });
       }
-      setPdfPageImages(pagesData);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to render PDF pages.");
-    } finally {
-      setConverting(false);
     }
+    return segments;
   };
 
-  // Delete page index dynamically
-  const handleDeletePage = (pageIdx: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (pdfPageImages.length <= 1) {
-      alert("A PDF document must contain at least one page.");
-      return;
+  const renderFormattedText = (rawText: string) => {
+    const segments = parseRichText(rawText);
+    return segments.map((seg, idx) => (
+      <span key={idx} style={{ fontWeight: seg.isBold ? "bold" : "normal" }}>
+        {seg.text}
+      </span>
+    ));
+  };
+
+  // Bold Selection helper
+  const handleMakeBoldSelection = (inputRef: HTMLInputElement | HTMLTextAreaElement | null) => {
+    if (!inputRef) return;
+    const start = inputRef.selectionStart;
+    const end = inputRef.selectionEnd;
+    if (start === null || end === null || start === end) return;
+
+    const val = inputRef.value;
+    const selectedText = val.substring(start, end);
+    
+    let newVal;
+    if (selectedText.startsWith("**") && selectedText.endsWith("**")) {
+      newVal = val.substring(0, start) + selectedText.slice(2, -2) + val.substring(end);
+    } else {
+      newVal = val.substring(0, start) + `**${selectedText}**` + val.substring(end);
     }
     
-    // Remove element on deleted page, shift subsequent page index parameters down
-    setElements(prev => prev
-      .filter(el => el.pageIndex !== pageIdx)
-      .map(el => el.pageIndex > pageIdx ? { ...el, pageIndex: el.pageIndex - 1 } : el)
-    );
-
-    // Shift drawing canvas bitmaps down
-    setCanvasDrawings(prev => {
-      const updated: { [key: number]: string } = {};
-      Object.keys(prev).forEach(keyStr => {
-        const key = parseInt(keyStr);
-        if (key < pageIdx) {
-          updated[key] = prev[key];
-        } else if (key > pageIdx) {
-          updated[key - 1] = prev[key];
-        }
-      });
-      return updated;
-    });
-
-    // Remove drawing canvas references corresponding to page index
-    if (canvasRefs.current[pageIdx]) {
-      canvasRefs.current.splice(pageIdx, 1);
+    if (isTextModalOpen) {
+      setTextVal(newVal);
+    } else {
+      setElements(prev => prev.map(item => item.id === selectedElementId ? { ...item, text: newVal } : item));
     }
 
-    setPdfPageImages(prev => prev.filter((_, i) => i !== pageIdx));
-    setActivePageIndex(prev => Math.max(0, Math.min(prev, pdfPageImages.length - 2)));
+    // Restore focus and selection
+    setTimeout(() => {
+      inputRef.focus();
+      inputRef.setSelectionRange(start, start + selectedText.length + (selectedText.startsWith("**") ? -4 : 4));
+    }, 50);
+  };
+
+  // Add Page Slide
+  const handleAddPage = () => {
+    const newPage: CustomPage = {
+      id: Math.random().toString(36).substring(2, 9),
+      w: 595,
+      h: 842
+    };
+    setPages(prev => [...prev, newPage]);
+    setActivePageIndex(pages.length);
     setSelectedElementId(null);
   };
 
-  // Drawing & Element mouse placements
-  const handlePageMouseDown = (pageIndex: number, e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRefs.current[pageIndex];
+  // Delete Page Slide
+  const handleDeletePage = (pageId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pages.length <= 1) {
+      alert("Your document must contain at least one page.");
+      return;
+    }
+    
+    // Clean up elements and drawing cache
+    setElements(prev => prev.filter(el => el.pageId !== pageId));
+    setCanvasDrawings(prev => {
+      const copy = { ...prev };
+      delete copy[pageId];
+      return copy;
+    });
+
+    const targetIdx = pages.findIndex(p => p.id === pageId);
+    setPages(prev => prev.filter(p => p.id !== pageId));
+    setActivePageIndex(prev => Math.max(0, Math.min(prev, pages.length - 2)));
+    setSelectedElementId(null);
+  };
+
+  // Drawing mouse handlers
+  const handlePageMouseDown = (pageId: string, e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRefs.current[pageId];
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -296,20 +297,23 @@ export default function EditPdf() {
     const pctY = (clientY / rect.height) * 100;
 
     if (activeTool === "text") {
-      setPendingCoords({ pageIndex, x: pctX, y: pctY });
+      setPendingCoords({ pageId, x: pctX, y: pctY });
       setTextVal("");
+      setTextFontSize(14);
+      setTextAlignment("left");
+      setTextFontStyle("normal");
       setIsTextModalOpen(true);
       return;
     }
 
     if (activeTool === "shape") {
-      setPendingCoords({ pageIndex, x: pctX, y: pctY });
+      setPendingCoords({ pageId, x: pctX, y: pctY });
       setIsShapeModalOpen(true);
       return;
     }
 
     if (activeTool === "image") {
-      setPendingCoords({ pageIndex, x: pctX, y: pctY });
+      setPendingCoords({ pageId, x: pctX, y: pctY });
       imageUploadRef.current?.click();
       return;
     }
@@ -336,9 +340,9 @@ export default function EditPdf() {
     }
   };
 
-  const handlePageMouseMove = (pageIndex: number, e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing.current || activeTool === "text" || activeTool === "image" || activeTool === "shape") return;
-    const canvas = canvasRefs.current[pageIndex];
+  const handlePageMouseMove = (pageId: string, e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing.current || activeTool === "text" || activeTool === "image" || activeTool === "shape" || activeTool === "select") return;
+    const canvas = canvasRefs.current[pageId];
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
@@ -353,20 +357,17 @@ export default function EditPdf() {
     ctx.stroke();
   };
 
-  const handlePageMouseUp = (pageIndex: number) => {
-    const canvas = canvasRefs.current[pageIndex];
+  const handlePageMouseUp = (pageId: string) => {
+    const canvas = canvasRefs.current[pageId];
     if (isDrawing.current && canvas && canvasSnapshotBeforeStroke.current) {
       const dataUrl = canvas.toDataURL("image/png");
-      setCanvasDrawings(prev => ({
-        ...prev,
-        [pageIndex]: dataUrl
-      }));
+      setCanvasDrawings(prev => ({ ...prev, [pageId]: dataUrl }));
 
       setHistory(prev => [
         ...prev,
         {
           type: "canvas_draw",
-          pageIndex,
+          pageId,
           canvasState: canvasSnapshotBeforeStroke.current as string
         }
       ]);
@@ -375,36 +376,38 @@ export default function EditPdf() {
     canvasSnapshotBeforeStroke.current = null;
   };
 
-  // Add Elements & Auto Reset Active Tool to Select Mode
+  // Add Elements
   const handleSaveTextElement = () => {
     if (!textVal.trim() || !pendingCoords) return;
-    const newEl: EditElement = {
+    const newEl: CreateElement = {
       id: Math.random().toString(36).substring(2, 9),
-      pageIndex: pendingCoords.pageIndex,
+      pageId: pendingCoords.pageId,
       type: "text",
       x: pendingCoords.x,
       y: pendingCoords.y,
-      width: 160,
-      height: 40,
+      width: textFontSize > 20 ? 240 : 160,
+      height: textFontSize > 20 ? 60 : 40,
       text: textVal,
       color: textColor,
       bgColor: textBgColor,
       fontSize: textFontSize,
-      fontFamily: textFontFamily
+      fontFamily: textFontFamily,
+      fontStyle: textFontStyle,
+      alignment: textAlignment
     };
     setElements(prev => [...prev, newEl]);
-    setHistory(prev => [...prev, { type: "element_add", pageIndex: pendingCoords.pageIndex, elementId: newEl.id }]);
+    setHistory(prev => [...prev, { type: "element_add", pageId: pendingCoords.pageId, elementId: newEl.id }]);
     setSelectedElementId(newEl.id);
-    setActiveTool("select"); // Switch to selector tool
+    setActiveTool("select");
     setIsTextModalOpen(false);
     setPendingCoords(null);
   };
 
   const handleSaveShapeElement = () => {
     if (!pendingCoords) return;
-    const newEl: EditElement = {
+    const newEl: CreateElement = {
       id: Math.random().toString(36).substring(2, 9),
-      pageIndex: pendingCoords.pageIndex,
+      pageId: pendingCoords.pageId,
       type: "shape",
       x: pendingCoords.x,
       y: pendingCoords.y,
@@ -415,9 +418,9 @@ export default function EditPdf() {
       borderColor: strokeColor
     };
     setElements(prev => [...prev, newEl]);
-    setHistory(prev => [...prev, { type: "element_add", pageIndex: pendingCoords.pageIndex, elementId: newEl.id }]);
+    setHistory(prev => [...prev, { type: "element_add", pageId: pendingCoords.pageId, elementId: newEl.id }]);
     setSelectedElementId(newEl.id);
-    setActiveTool("select"); // Switch to selector tool
+    setActiveTool("select");
     setIsShapeModalOpen(false);
     setPendingCoords(null);
   };
@@ -426,9 +429,9 @@ export default function EditPdf() {
     if (e.target.files && e.target.files[0] && pendingCoords) {
       const fileReader = new FileReader();
       fileReader.onload = (event) => {
-        const newEl: EditElement = {
+        const newEl: CreateElement = {
           id: Math.random().toString(36).substring(2, 9),
-          pageIndex: pendingCoords.pageIndex,
+          pageId: pendingCoords.pageId,
           type: "image",
           x: pendingCoords.x,
           y: pendingCoords.y,
@@ -437,16 +440,16 @@ export default function EditPdf() {
           imageUrl: event.target?.result as string
         };
         setElements(prev => [...prev, newEl]);
-        setHistory(prev => [...prev, { type: "element_add", pageIndex: pendingCoords.pageIndex, elementId: newEl.id }]);
+        setHistory(prev => [...prev, { type: "element_add", pageId: pendingCoords.pageId, elementId: newEl.id }]);
         setSelectedElementId(newEl.id);
-        setActiveTool("select"); // Switch to selector tool
+        setActiveTool("select");
         setPendingCoords(null);
       };
       fileReader.readAsDataURL(e.target.files[0]);
     }
   };
 
-  // Draggable HUD controls with local snapshot capture to prevent batching race conditions
+  // Drag and resizing
   const handleDragElement = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
     e.preventDefault();
@@ -457,7 +460,7 @@ export default function EditPdf() {
     setSelectedElementId(id);
     dragSnapshot.current = { x: target.x, y: target.y, w: target.width, h: target.height };
 
-    const container = document.getElementById(`pdf-page-container-${target.pageIndex}`);
+    const container = document.getElementById(`pdf-page-container-${target.pageId}`);
     if (!container) return;
 
     const startX = e.clientX;
@@ -498,7 +501,7 @@ export default function EditPdf() {
               ...h,
               {
                 type: "element_drag",
-                pageIndex: finalTarget.pageIndex,
+                pageId: finalTarget.pageId,
                 elementId: id,
                 beforeCoords: snapshot
               }
@@ -555,7 +558,7 @@ export default function EditPdf() {
               ...h,
               {
                 type: "element_resize",
-                pageIndex: finalTarget.pageIndex,
+                pageId: finalTarget.pageId,
                 elementId: id,
                 beforeCoords: snapshot
               }
@@ -574,20 +577,20 @@ export default function EditPdf() {
   const deleteElement = (id: string) => {
     const target = elements.find(el => el.id === id);
     if (target) {
-      setHistory(prev => [...prev, { type: "element_delete", pageIndex: target.pageIndex, element: target }]);
+      setHistory(prev => [...prev, { type: "element_delete", pageId: target.pageId, element: target }]);
       setElements(prev => prev.filter(el => el.id !== id));
       setSelectedElementId(null);
     }
   };
 
-  // Undo Functionality
+  // Undo System
   const handleUndo = () => {
     if (history.length === 0) return;
     const lastAction = history[history.length - 1];
     setHistory(prev => prev.slice(0, -1));
 
     if (lastAction.type === "canvas_draw") {
-      const canvas = canvasRefs.current[lastAction.pageIndex];
+      const canvas = canvasRefs.current[lastAction.pageId];
       const ctx = canvas?.getContext("2d");
       if (canvas && ctx && lastAction.canvasState) {
         const img = new Image();
@@ -596,18 +599,14 @@ export default function EditPdf() {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
 
-          // Update drawing state cache
           const dataUrl = canvas.toDataURL("image/png");
-          setCanvasDrawings(prev => ({
-            ...prev,
-            [lastAction.pageIndex]: dataUrl
-          }));
+          setCanvasDrawings(prev => ({ ...prev, [lastAction.pageId]: dataUrl }));
         };
       }
     } else if (lastAction.type === "element_add") {
       setElements(prev => prev.filter(el => el.id !== lastAction.elementId));
     } else if (lastAction.type === "element_delete" && lastAction.element) {
-      setElements(prev => [...prev, lastAction.element as EditElement]);
+      setElements(prev => [...prev, lastAction.element as CreateElement]);
     } else if (lastAction.type === "element_drag" && lastAction.beforeCoords) {
       setElements(prev => prev.map(el => el.id === lastAction.elementId ? {
         ...el,
@@ -623,16 +622,15 @@ export default function EditPdf() {
     }
   };
 
-  // Save compiled PDF modifications (Support deleted pages & offsets)
+  // Compile PDF from scratch
   const handleSavePdf = async () => {
-    if (!file || pdfPageImages.length === 0) return;
+    if (pages.length === 0) return;
 
-    // Capture dimensions of remaining containers before loading unmounts them
-    const pageDimensions = pdfPageImages.map((_, idx) => {
-      const container = document.getElementById(`pdf-page-container-${idx}`);
+    const pageDimensions = pages.map((p) => {
+      const container = document.getElementById(`pdf-page-container-${p.id}`);
       return {
         clientWidth: container?.clientWidth || 560,
-        clientHeight: container?.clientHeight || 700
+        clientHeight: container?.clientHeight || 792
       };
     });
 
@@ -641,36 +639,43 @@ export default function EditPdf() {
 
     try {
       const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
-      const arrayBuffer = await file.arrayBuffer();
-      const originalPdfDoc = await PDFDocument.load(arrayBuffer);
-      
-      // Create new PDF copying only the remaining original page indices
       const pdfDoc = await PDFDocument.create();
-      const remainingIndices = pdfPageImages.map(p => p.originalIndex);
-      const copiedPages = await pdfDoc.copyPages(originalPdfDoc, remainingIndices);
-      copiedPages.forEach(p => pdfDoc.addPage(p));
 
-      const pages = pdfDoc.getPages();
-
-      // Pre-load typography vectors
+      // Embed Fonts & variants (Bold / Italic)
       const fonts = {
         Helvetica: await pdfDoc.embedFont(StandardFonts.Helvetica),
+        HelveticaBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+        HelveticaOblique: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+        HelveticaBoldOblique: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
         Courier: await pdfDoc.embedFont(StandardFonts.Courier),
-        TimesRoman: await pdfDoc.embedFont(StandardFonts.TimesRoman)
+        CourierBold: await pdfDoc.embedFont(StandardFonts.CourierBold),
+        CourierOblique: await pdfDoc.embedFont(StandardFonts.CourierOblique),
+        CourierBoldOblique: await pdfDoc.embedFont(StandardFonts.CourierBoldOblique),
+        TimesRoman: await pdfDoc.embedFont(StandardFonts.TimesRoman),
+        TimesRomanBold: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+        TimesRomanItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanItalic),
+        TimesRomanBoldItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic)
       };
 
-      // A. Embed Pen drawings from canvasDrawings state cache
-      for (let i = 0; i < pdfPageImages.length; i++) {
-        const savedDrawing = canvasDrawings[i];
-        if (savedDrawing && i < pages.length) {
-          const page = pages[i];
-          const { width: pdfW, height: pdfH } = page.getSize();
-          const base64Bytes = savedDrawing.split(",")[1];
-          const pngBytes = Uint8Array.from(atob(base64Bytes), c => c.charCodeAt(0));
-          const embeddedImg = await pdfDoc.embedPng(pngBytes);
-          page.drawImage(embeddedImg, { x: 0, y: 0, width: pdfW, height: pdfH });
+      const getFontRef = (family: FontFamily, style?: FontStyle) => {
+        if (family === "Courier") {
+          if (style === "bold") return fonts.CourierBold;
+          if (style === "italic") return fonts.CourierOblique;
+          if (style === "boldItalic") return fonts.CourierBoldOblique;
+          return fonts.Courier;
         }
-      }
+        if (family === "TimesRoman") {
+          if (style === "bold") return fonts.TimesRomanBold;
+          if (style === "italic") return fonts.TimesRomanItalic;
+          if (style === "boldItalic") return fonts.TimesRomanBoldItalic;
+          return fonts.TimesRoman;
+        }
+        // Default Helvetica
+        if (style === "bold") return fonts.HelveticaBold;
+        if (style === "italic") return fonts.HelveticaOblique;
+        if (style === "boldItalic") return fonts.HelveticaBoldOblique;
+        return fonts.Helvetica;
+      };
 
       const parseColor = (colStr: string) => {
         if (colStr.startsWith("#")) {
@@ -688,96 +693,132 @@ export default function EditPdf() {
         return rgb(0, 0, 0);
       };
 
-      // B. Embed elements (Text, Images, Shapes)
-      for (const el of elements) {
-        if (el.pageIndex >= pages.length) continue;
-        const page = pages[el.pageIndex];
-        const dims = pageDimensions[el.pageIndex];
-        const { width: pdfW, height: pdfH } = page.getSize();
+      for (let i = 0; i < pages.length; i++) {
+        const pageMeta = pages[i];
+        const pageDims = pageDimensions[i];
+        
+        // Add A4 blank page (595.28 width, 841.89 height)
+        const pdfPage = pdfDoc.addPage([595.28, 841.89]);
+        const { width: pdfW, height: pdfH } = pdfPage.getSize();
 
-        const scaleX = pdfW / dims.clientWidth;
-        const scaleY = pdfH / dims.clientHeight;
+        const scaleX = pdfW / pageDims.clientWidth;
+        const scaleY = pdfH / pageDims.clientHeight;
 
-        const elX = (el.x / 100) * dims.clientWidth * scaleX;
-        const elY = (dims.clientHeight - (el.y / 100) * dims.clientHeight - el.height) * scaleY;
-        const elW = el.width * scaleX;
-        const elH = el.height * scaleY;
+        // 1. Draw pen canvas strokes
+        const savedDrawing = canvasDrawings[pageMeta.id];
+        if (savedDrawing) {
+          const base64Bytes = savedDrawing.split(",")[1];
+          const pngBytes = Uint8Array.from(atob(base64Bytes), c => c.charCodeAt(0));
+          const embeddedImg = await pdfDoc.embedPng(pngBytes);
+          pdfPage.drawImage(embeddedImg, { x: 0, y: 0, width: pdfW, height: pdfH });
+        }
 
-        if (el.type === "text" && el.text) {
-          const font = fonts[el.fontFamily || "Helvetica"];
-          const fSize = (el.fontSize || 14) * scaleY;
+        // 2. Draw text, image, and shape elements
+        const pageElements = elements.filter(el => el.pageId === pageMeta.id);
+        for (const el of pageElements) {
+          const elX = (el.x / 100) * pageDims.clientWidth * scaleX;
+          const elY = (pageDims.clientHeight - (el.y / 100) * pageDims.clientHeight - el.height) * scaleY;
+          const elW = el.width * scaleX;
+          const elH = el.height * scaleY;
+
+          if (el.type === "text" && el.text) {
+            const regularFont = getFontRef(el.fontFamily || "Helvetica", el.fontStyle?.includes("italic") ? "italic" : "normal");
+            const boldFont = getFontRef(el.fontFamily || "Helvetica", el.fontStyle?.includes("italic") ? "boldItalic" : "bold");
+            const fSize = (el.fontSize || 14) * scaleY;
+
+            const segments = parseRichText(el.text);
+
+            // Compute total measured text width for alignment offsets
+            let totalWidth = 0;
+            for (const seg of segments) {
+              const currentFont = seg.isBold ? boldFont : regularFont;
+              totalWidth += currentFont.widthOfTextAtSize(seg.text, fSize);
+            }
+
+            let alignOffsetX = 4 * scaleX;
+            if (el.alignment === "center") {
+              alignOffsetX = (elW - totalWidth) / 2;
+            } else if (el.alignment === "right") {
+              alignOffsetX = elW - totalWidth - 4 * scaleX;
+            }
+            
+            if (el.bgColor && el.bgColor !== "transparent") {
+              pdfPage.drawRectangle({
+                x: elX,
+                y: elY,
+                width: elW,
+                height: elH,
+                color: parseColor(el.bgColor)
+              });
+            }
+
+            // Draw segments sequentially
+            let currentX = elX + alignOffsetX;
+            for (const seg of segments) {
+              const currentFont = seg.isBold ? boldFont : regularFont;
+              pdfPage.drawText(seg.text, {
+                x: currentX,
+                y: elY + (el.height - 18) * scaleY,
+                size: fSize,
+                font: currentFont,
+                color: parseColor(el.color || "#000000")
+              });
+              currentX += currentFont.widthOfTextAtSize(seg.text, fSize);
+            }
+          } 
           
-          if (el.bgColor && el.bgColor !== "transparent") {
-            page.drawRectangle({
+          else if (el.type === "shape") {
+            const isCircle = el.shapeType === "circle";
+            const fillColorRGB = el.fillColor ? parseColor(el.fillColor) : undefined;
+            const borderColorRGB = el.borderColor ? parseColor(el.borderColor) : undefined;
+
+            if (isCircle) {
+              pdfPage.drawEllipse({
+                x: elX + elW / 2,
+                y: elY + elH / 2,
+                xScale: elW / 2,
+                yScale: elH / 2,
+                color: fillColorRGB,
+                borderColor: borderColorRGB,
+                borderWidth: 1.5 * scaleX
+              });
+            } else {
+              pdfPage.drawRectangle({
+                x: elX,
+                y: elY,
+                width: elW,
+                height: elH,
+                color: fillColorRGB,
+                borderColor: borderColorRGB,
+                borderWidth: 1.5 * scaleX
+              });
+            }
+          } 
+          
+          else if (el.type === "image" && el.imageUrl) {
+            const imageParts = el.imageUrl.split(",");
+            const byteString = atob(imageParts[1]);
+            const imgBytes = new Uint8Array(byteString.length);
+            for (let j = 0; j < byteString.length; j++) {
+              imgBytes[j] = byteString.charCodeAt(j);
+            }
+
+            const embeddedElImg = el.imageUrl.includes("image/png") 
+              ? await pdfDoc.embedPng(imgBytes) 
+              : await pdfDoc.embedJpg(imgBytes);
+
+            pdfPage.drawImage(embeddedElImg, {
               x: elX,
               y: elY,
               width: elW,
-              height: elH,
-              color: parseColor(el.bgColor)
+              height: elH
             });
           }
-
-          page.drawText(el.text, {
-            x: elX + 4 * scaleX,
-            y: elY + (el.height - 18) * scaleY,
-            size: fSize,
-            font,
-            color: parseColor(el.color || "#000000")
-          });
-        } 
-        
-        else if (el.type === "shape") {
-          const isCircle = el.shapeType === "circle";
-          const fillColorRGB = el.fillColor ? parseColor(el.fillColor) : undefined;
-          const borderColorRGB = el.borderColor ? parseColor(el.borderColor) : undefined;
-
-          if (isCircle) {
-            page.drawEllipse({
-              x: elX + elW / 2,
-              y: elY + elH / 2,
-              xScale: elW / 2,
-              yScale: elH / 2,
-              color: fillColorRGB,
-              borderColor: borderColorRGB,
-              borderWidth: 1.5 * scaleX
-            });
-          } else {
-            page.drawRectangle({
-              x: elX,
-              y: elY,
-              width: elW,
-              height: elH,
-              color: fillColorRGB,
-              borderColor: borderColorRGB,
-              borderWidth: 1.5 * scaleX
-            });
-          }
-        } 
-        
-        else if (el.type === "image" && el.imageUrl) {
-          const imageParts = el.imageUrl.split(",");
-          const byteString = atob(imageParts[1]);
-          const imgBytes = new Uint8Array(byteString.length);
-          for (let j = 0; j < byteString.length; j++) {
-            imgBytes[j] = byteString.charCodeAt(j);
-          }
-
-          const embeddedElImg = el.imageUrl.includes("image/png") 
-            ? await pdfDoc.embedPng(imgBytes) 
-            : await pdfDoc.embedJpg(imgBytes);
-
-          page.drawImage(embeddedElImg, {
-            x: elX,
-            y: elY,
-            width: elW,
-            height: elH
-          });
         }
       }
 
-      setProgressMsg("Saving output file...");
+      setProgressMsg("Saving PDF output...");
       const pdfBytesOutput = await pdfDoc.save();
-
       const pdfBlobOutput = new Blob([pdfBytesOutput] as any, { type: "application/pdf" });
       const url = URL.createObjectURL(pdfBlobOutput);
 
@@ -785,7 +826,7 @@ export default function EditPdf() {
       setOutputUrl(url);
     } catch (err: any) {
       console.error(err);
-      alert("Failed to compile layout edits: " + (err.message || err));
+      alert("Failed to build PDF: " + (err.message || err));
     } finally {
       setConverting(false);
       setProgressMsg("");
@@ -794,7 +835,7 @@ export default function EditPdf() {
 
   const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
-    const name = `Edited_${file?.name}`;
+    const name = `Created_Document.pdf`;
     const type = "application/pdf";
 
     const openDb = (): Promise<IDBDatabase> => {
@@ -837,7 +878,7 @@ export default function EditPdf() {
 
       <div className="flex-1 flex flex-col md:flex-row w-full max-w-[100vw] justify-center overflow-hidden">
         
-        {/* LEFT COLUMN: Advertising (Shown always to preserve layout spacing) */}
+        {/* LEFT COLUMN: Advertising */}
         {!isPremium && !isFullscreen && (
           <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
@@ -864,12 +905,12 @@ export default function EditPdf() {
             <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h1 className="text-xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-                  <i className="ri-file-edit-line text-blue-600 dark:text-blue-500"></i> Edit PDF Document
+                  <i className="ri-file-add-line text-blue-600 dark:text-blue-500"></i> Create PDF Document
                   
-                  {file && (
+                  {!outputUrl && (
                     <button
                       onClick={() => setIsFullscreen(!isFullscreen)}
-                      className="ml-2.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-800 dark:hover:bg-indigo-800 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition shadow-sm"
+                      className="ml-2.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-800 dark:hover:bg-indigo-850 rounded-xl text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition shadow-sm text-white"
                       title={isFullscreen ? "Exit Fullscreen (Esc)" : "Fullscreen Workspace"}
                     >
                       <i className={isFullscreen ? "ri-fullscreen-exit-line" : "ri-fullscreen-line"}></i>
@@ -878,28 +919,31 @@ export default function EditPdf() {
                   )}
                 </h1>
                 <p className="text-sm text-zinc-700 dark:text-zinc-400">
-                  Add custom texts, drag images, draw layouts, and decorate vectors entirely offline.
+                  Build custom layout slides, place typography, draw vectors, and compile documents offline.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* PAGE THUMBNAILS HORIZONTAL SCROLL TIMELINE IN MAIN PANEL */}
-          {file && pdfPageImages.length > 0 && !outputUrl && !converting && (
+          {/* PAGE THUMBNAILS HORIZONTAL SCROLL TIMELINE */}
+          {pages.length > 0 && !outputUrl && !converting && (
             <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm space-y-2.5 animate-in fade-in">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Select Page to Edit</span>
-                <span className="text-[10px] font-bold text-blue-500 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/35 rounded-full">
-                  Total Pages: {pdfPageImages.length}
-                </span>
+                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Document Slides timeline</span>
+                <button
+                  onClick={handleAddPage}
+                  className="text-[10px] font-bold text-blue-600 dark:text-blue-400 px-2.5 py-1 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                >
+                  <i className="ri-add-line"></i> Add Slide Page
+                </button>
               </div>
               
               <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700">
-                {pdfPageImages.map((page, idx) => {
+                {pages.map((page, idx) => {
                   const isActive = idx === activePageIndex;
                   return (
                     <div
-                      key={idx}
+                      key={page.id}
                       onClick={() => { setActivePageIndex(idx); setSelectedElementId(null); }}
                       className={`relative group flex-shrink-0 w-24 h-32 rounded-xl border p-2 cursor-pointer transition flex flex-col justify-between bg-zinc-50 dark:bg-zinc-950 ${
                         isActive 
@@ -910,7 +954,7 @@ export default function EditPdf() {
                       <div className="flex items-center justify-between text-[10px] font-extrabold text-zinc-400 leading-none">
                         <span>PAGE {idx + 1}</span>
                         <button
-                          onClick={(e) => handleDeletePage(idx, e)}
+                          onClick={(e) => handleDeletePage(page.id, e)}
                           className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition cursor-pointer text-xs"
                           title="Delete Page"
                         >
@@ -919,11 +963,14 @@ export default function EditPdf() {
                       </div>
                       
                       <div className="flex-1 flex items-center justify-center p-1 overflow-hidden">
-                        <img 
-                          src={page.url} 
-                          alt={`page-${idx}`} 
-                          className="max-h-20 object-contain shadow-sm rounded border border-zinc-250/50 dark:border-zinc-800" 
-                        />
+                        <div className="h-16 w-12 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded shadow-sm flex flex-col items-center justify-center gap-1 text-[8px] text-zinc-400">
+                          {canvasDrawings[page.id] ? (
+                            <i className="ri-pencil-line text-purple-500"></i>
+                          ) : (
+                            <i className="ri-file-line"></i>
+                          )}
+                          <span>Blank</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -932,43 +979,18 @@ export default function EditPdf() {
             </div>
           )}
 
-          {!file && (
-            <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-655 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-file-edit-fill"></i>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select PDF document to edit</p>
-                <p className="text-[14px] text-zinc-400 dark:text-zinc-500 mt-1">Upload a PDF to apply vector modifications.</p>
-              </div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept=".pdf,application/pdf"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
-              >
-                Choose PDF File
-              </button>
-            </div>
-          )}
-
           {converting && (
             <div className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-4 shadow-sm animate-in fade-in duration-200">
               <div className="animate-spin h-10 w-10 text-blue-600 border-4 border-t-transparent rounded-full mx-auto" />
               <div className="space-y-1">
-                <p className="text-sm font-bold text-zinc-900 dark:text-white">Processing Document...</p>
-                <p className="text-xs text-zinc-500 font-mono">{progressMsg}</p>
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">Compiling Document...</p>
+                <p className="text-xs text-zinc-505 font-mono">{progressMsg}</p>
               </div>
             </div>
           )}
 
           {/* Interactive Annotation Workspace */}
-          {file && pdfPageImages.length > 0 && !outputUrl && !converting && (
+          {pages.length > 0 && !outputUrl && !converting && (
             <div className="w-full space-y-6 flex flex-col items-center">
               
               {/* Toolbar Control Panel HUD */}
@@ -986,11 +1008,11 @@ export default function EditPdf() {
                   ].map((tool) => (
                     <button
                       key={tool.id}
-                      onClick={() => { setActiveTool(tool.id as EditTool); setSelectedElementId(null); }}
+                      onClick={() => { setActiveTool(tool.id as CreateTool); setSelectedElementId(null); }}
                       title={tool.label}
                       className={`h-8 px-2.5 rounded-lg flex items-center justify-center transition cursor-pointer text-sm font-bold gap-1 ${
                         activeTool === tool.id
-                          ? "bg-white dark:bg-zinc-850 text-blue-700 shadow-sm"
+                          ? "bg-white dark:bg-zinc-800 text-blue-700 shadow-sm"
                           : "text-zinc-700 hover:text-zinc-850 dark:hover:text-zinc-250 dark:text-zinc-200"
                       }`}
                     >
@@ -1036,7 +1058,7 @@ export default function EditPdf() {
                       max="12"
                       value={brushWidth}
                       onChange={(e) => setBrushWidth(parseInt(e.target.value))}
-                      className="w-16 h-1 appearance-none bg-zinc-250 dark:bg-zinc-800 rounded-lg cursor-pointer accent-blue-600"
+                      className="w-16 h-1 appearance-none bg-zinc-200 dark:bg-zinc-800 rounded-lg cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
@@ -1058,54 +1080,262 @@ export default function EditPdf() {
                   </button>
                 </div>
 
-                {/* Export Stamp */}
+                {/* Save PDF Stamp */}
                 <button
                   onClick={handleSavePdf}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-1.5"
                 >
-                  <i className="ri-checkbox-circle-line"></i> Save Edits
+                  <i className="ri-checkbox-circle-line"></i> Compile PDF
                 </button>
 
               </div>
 
-              {/* Applied Modifications (Layers) Badge Area */}
+              {/* Selected Element Editor Panel */}
+              {(() => {
+                if (!selectedElementId) return null;
+                const el = elements.find(item => item.id === selectedElementId);
+                if (!el) return null;
+
+                return (
+                  <div className="w-full bg-blue-50/50 dark:bg-blue-950/10 p-3.5 rounded-2xl border border-blue-200 dark:border-blue-900/40 flex flex-wrap items-center justify-between gap-4 animate-in slide-in-from-top duration-150 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse"></span>
+                      <span className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                        Editing Selected {el.type}
+                      </span>
+                    </div>
+
+                    {el.type === "text" && (
+                      <div className="flex-1 flex flex-wrap items-center gap-4">
+                        {/* Text Value */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Text:</span>
+                          <input
+                            ref={editorInputRef}
+                            type="text"
+                            value={el.text || ""}
+                            onChange={(e) => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, text: e.target.value } : item));
+                            }}
+                            className="px-2 py-1 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none font-bold text-zinc-900 dark:text-white"
+                          />
+                          <button
+                            onClick={() => handleMakeBoldSelection(editorInputRef.current)}
+                            className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-305 rounded text-[10px] font-black border border-zinc-300 dark:border-zinc-700 transition cursor-pointer"
+                            title="Format selection to bold"
+                          >
+                            <i className="ri-bold"></i> selection
+                          </button>
+                        </div>
+
+                        {/* Font Family */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Font:</span>
+                          <select
+                            value={el.fontFamily || "Helvetica"}
+                            onChange={(e) => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, fontFamily: e.target.value as FontFamily } : item));
+                            }}
+                            className="px-2 py-1 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none font-bold text-zinc-800 dark:text-zinc-300 cursor-pointer"
+                          >
+                            <option value="Helvetica">Helvetica</option>
+                            <option value="Courier">Courier</option>
+                            <option value="TimesRoman">Times Roman</option>
+                          </select>
+                        </div>
+
+                        {/* Font Size */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Size:</span>
+                          <select
+                            value={el.fontSize || 14}
+                            onChange={(e) => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, fontSize: parseInt(e.target.value) } : item));
+                            }}
+                            className="px-2 py-1 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none font-bold text-zinc-800 dark:text-zinc-300 cursor-pointer"
+                          >
+                            {[10, 12, 14, 16, 18, 20, 24, 28, 32, 36].map(sz => (
+                              <option key={sz} value={sz}>{sz}px</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Styles & Alignment toggles */}
+                        <div className="flex items-center gap-1.5">
+                          {/* Italics toggle */}
+                          <button
+                            onClick={() => {
+                              const newStyle: FontStyle = el.fontStyle === "italic" ? "normal" : el.fontStyle === "boldItalic" ? "bold" : el.fontStyle === "bold" ? "boldItalic" : "italic";
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, fontStyle: newStyle } : item));
+                            }}
+                            className={`h-7 w-7 rounded-lg flex items-center justify-center transition cursor-pointer text-xs font-bold border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 ${
+                              el.fontStyle?.includes("italic") ? "text-blue-600 border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "text-zinc-500"
+                            }`}
+                            title="Italics Toggle"
+                          >
+                            <i className="ri-italic"></i>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-950 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                          {/* Left Align */}
+                          <button
+                            onClick={() => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, alignment: "left" } : item));
+                            }}
+                            className={`h-6 w-6 rounded-lg flex items-center justify-center transition cursor-pointer text-xs ${
+                              el.alignment === "left" || !el.alignment ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm font-bold" : "text-zinc-500"
+                            }`}
+                          >
+                            <i className="ri-align-left"></i>
+                          </button>
+                          {/* Center Align */}
+                          <button
+                            onClick={() => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, alignment: "center" } : item));
+                            }}
+                            className={`h-6 w-6 rounded-lg flex items-center justify-center transition cursor-pointer text-xs ${
+                              el.alignment === "center" ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm font-bold" : "text-zinc-500"
+                            }`}
+                          >
+                            <i className="ri-align-center"></i>
+                          </button>
+                          {/* Right Align */}
+                          <button
+                            onClick={() => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, alignment: "right" } : item));
+                            }}
+                            className={`h-6 w-6 rounded-lg flex items-center justify-center transition cursor-pointer text-xs ${
+                              el.alignment === "right" ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm font-bold" : "text-zinc-500"
+                            }`}
+                          >
+                            <i className="ri-align-right"></i>
+                          </button>
+                        </div>
+
+                        {/* Colors */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Color:</span>
+                          <div className="flex gap-1">
+                            {[
+                              { val: "#000000", label: "Charcoal" },
+                              { val: "#002fa7", label: "Royal Blue" },
+                              { val: "#a00000", label: "Crimson" },
+                              { val: "#006400", label: "Forest" }
+                            ].map((color) => (
+                              <button
+                                key={color.val}
+                                onClick={() => {
+                                  setElements(prev => prev.map(item => item.id === el.id ? { ...item, color: color.val } : item));
+                                }}
+                                className={`h-5.5 w-5.5 rounded-full border border-white dark:border-zinc-900 cursor-pointer transition ${
+                                  el.color === color.val ? "scale-110 ring-2 ring-blue-500/25" : ""
+                                }`}
+                                style={{ backgroundColor: color.val }}
+                                title={color.label}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {el.type === "shape" && (
+                      <div className="flex-1 flex flex-wrap items-center gap-4">
+                        {/* Shape Type */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Type:</span>
+                          <select
+                            value={el.shapeType || "rectangle"}
+                            onChange={(e) => {
+                              setElements(prev => prev.map(item => item.id === el.id ? { ...item, shapeType: e.target.value as ShapeType } : item));
+                            }}
+                            className="px-2 py-1 text-xs bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg outline-none font-bold text-zinc-800 dark:text-zinc-300 cursor-pointer"
+                          >
+                            <option value="rectangle">Rectangle</option>
+                            <option value="circle">Circle</option>
+                          </select>
+                        </div>
+
+                        {/* Fill Styles */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-zinc-400 font-bold uppercase">Fill:</span>
+                          <div className="flex gap-1.5">
+                            {[
+                              { val: "transparent", label: "Outline" },
+                              { val: "rgba(59, 130, 246, 0.4)", label: "Blue" },
+                              { val: "rgba(234, 179, 8, 0.4)", label: "Yellow" },
+                              { val: "rgba(0, 0, 0, 0.1)", label: "Gray" }
+                            ].map(col => (
+                              <button
+                                key={col.val}
+                                onClick={() => {
+                                  setElements(prev => prev.map(item => item.id === el.id ? { ...item, fillColor: col.val } : item));
+                                }}
+                                className={`px-2 py-0.5 rounded text-[9px] font-bold border border-zinc-200 dark:border-zinc-800 transition cursor-pointer ${
+                                  el.fillColor === col.val ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 font-extrabold" : "bg-white dark:bg-zinc-950 text-zinc-500"
+                                }`}
+                              >
+                                {col.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => setSelectedElementId(null)}
+                      className="px-2.5 py-1 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-lg text-[10px] font-bold text-zinc-700 dark:text-zinc-300 transition cursor-pointer"
+                    >
+                      Deselect
+                    </button>
+                  </div>
+                );
+              })()}
+
+              {/* Applied Modifications Badge Area */}
               {(elements.length > 0 || Object.keys(canvasDrawings).length > 0) && (
                 <div className="w-full bg-zinc-100/60 dark:bg-zinc-900/40 p-3 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-2 text-left animate-in fade-in">
                   <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mr-1 select-none">Applied Layers:</span>
                   
                   {/* Vector Elements */}
-                  {elements.map((el) => (
-                    <span
-                      key={el.id}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-zinc-900 border border-zinc-250 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 shadow-sm"
-                    >
-                      <i className={
-                        el.type === "text" ? "ri-text text-blue-500" :
-                        el.type === "shape" ? "ri-shapes-line text-amber-500" :
-                        "ri-image-line text-emerald-500"
-                      }></i>
-                      <span className="truncate max-w-[120px]">
-                        {el.type === "text" ? `Text: "${el.text}"` : el.type === "shape" ? `Shape: ${el.shapeType}` : "Image Layer"}
-                      </span>
-                      <span className="text-[9px] text-zinc-400 font-normal select-none">(Page {el.pageIndex + 1})</span>
-                      <button
-                        onClick={() => deleteElement(el.id)}
-                        className="text-zinc-400 hover:text-red-500 transition cursor-pointer font-bold leading-none text-sm ml-0.5"
-                        title="Remove Layer"
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-
-                  {/* Pen Drawings */}
-                  {Object.entries(canvasDrawings).map(([pageIdxStr, dataUrl]) => {
-                    if (!dataUrl) return null;
-                    const pageIdx = parseInt(pageIdxStr);
+                  {elements.map((el) => {
+                    const pageIndexNum = pages.findIndex(p => p.id === el.pageId) + 1;
                     return (
                       <span
-                        key={`drawing-${pageIdx}`}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-zinc-900 border border-zinc-250 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 shadow-sm"
+                        key={el.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 shadow-sm font-semibold"
+                      >
+                        <i className={
+                          el.type === "text" ? "ri-text text-blue-500" :
+                          el.type === "shape" ? "ri-shapes-line text-amber-500" :
+                          "ri-image-line text-emerald-500"
+                        }></i>
+                        <span className="truncate max-w-[120px]">
+                          {el.type === "text" ? `Text: "${el.text}"` : el.type === "shape" ? `Shape: ${el.shapeType}` : "Image Layer"}
+                        </span>
+                        <span className="text-[9px] text-zinc-400 font-normal select-none">(Page {pageIndexNum})</span>
+                        <button
+                          onClick={() => deleteElement(el.id)}
+                          className="text-zinc-400 hover:text-red-505 transition cursor-pointer font-bold leading-none text-sm ml-0.5"
+                          title="Remove Layer"
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    );
+                  })}
+
+                  {/* Pen Drawings */}
+                  {Object.entries(canvasDrawings).map(([pId, dataUrl]) => {
+                    if (!dataUrl) return null;
+                    const pageIdx = pages.findIndex(p => p.id === pId);
+                    if (pageIdx === -1) return null;
+                    return (
+                      <span
+                        key={`drawing-${pId}`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 shadow-sm"
                       >
                         <i className="ri-pencil-line text-purple-500"></i>
                         <span>Pen Drawing</span>
@@ -1114,11 +1344,11 @@ export default function EditPdf() {
                           onClick={() => {
                             setCanvasDrawings(prev => {
                               const copy = { ...prev };
-                              delete copy[pageIdx];
+                              delete copy[pId];
                               return copy;
                             });
-                            if (pageIdx === activePageIndex) {
-                              const canvas = canvasRefs.current[pageIdx];
+                            if (pId === pages[activePageIndex]?.id) {
+                              const canvas = canvasRefs.current[pId];
                               const ctx = canvas?.getContext("2d");
                               if (canvas && ctx) {
                                 ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1138,48 +1368,41 @@ export default function EditPdf() {
 
               {/* Active PDF Page Container Area */}
               {(() => {
-                const activePage = pdfPageImages[activePageIndex] || pdfPageImages[0];
+                const activePage = pages[activePageIndex];
                 if (!activePage) return null;
 
                 return (
-                  <div className="w-full bg-zinc-100/50 dark:bg-zinc-950/20 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-auto h-[600px] max-h-[70vh]">
+                  <div className="w-full flex flex-col items-center justify-center bg-zinc-100/50 dark:bg-zinc-950/20 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 overflow-auto h-[600px] max-h-[70vh]">
                     <div className="text-center mb-2">
                       <span className="text-[10px] block mb-2 font-bold text-zinc-400 uppercase tracking-wider select-none">
-                        PAGE {activePageIndex + 1} OF {pdfPageImages.length}
+                        PAGE {activePageIndex + 1} OF {pages.length}
                       </span>
 
                       <div
-                        id={`pdf-page-container-${activePageIndex}`}
+                        id={`pdf-page-container-${activePage.id}`}
                         className="relative mx-auto bg-white border border-zinc-300 shadow-md select-none overflow-hidden"
                         style={{ 
                           width: `${560 * (zoom / 100)}px`,
                           height: `${(560 * (activePage.h / activePage.w)) * (zoom / 100)}px`
                         }}
                       >
-                        {/* PDF Page image layer */}
-                        <img
-                          src={activePage.url}
-                          alt={`Active Page ${activePageIndex}`}
-                          className="absolute inset-0 w-full h-full pointer-events-none block"
-                        />
-
-                        {/* Pen Drawing Canvas Layer */}
+                        {/* Blank Canvas Drawing Layer */}
                         <canvas
-                          ref={(el) => { canvasRefs.current[activePageIndex] = el; }}
+                          ref={(el) => { canvasRefs.current[activePage.id] = el; }}
                           width={activePage.w}
                           height={activePage.h}
-                          onMouseDown={(e) => handlePageMouseDown(activePageIndex, e)}
-                          onMouseMove={(e) => handlePageMouseMove(activePageIndex, e)}
-                          onMouseUp={() => handlePageMouseUp(activePageIndex)}
-                          onMouseLeave={() => handlePageMouseUp(activePageIndex)}
-                          className={`absolute inset-0 w-full h-full bg-transparent ${
+                          onMouseDown={(e) => handlePageMouseDown(activePage.id, e)}
+                          onMouseMove={(e) => handlePageMouseMove(activePage.id, e)}
+                          onMouseUp={() => handlePageMouseUp(activePage.id)}
+                          onMouseLeave={() => handlePageMouseUp(activePage.id)}
+                          className={`absolute inset-0 w-full h-full bg-white ${
                             activeTool === "draw" || activeTool === "eraser" 
                               ? "z-35 cursor-crosshair pointer-events-auto" 
                               : "z-10 pointer-events-none"
                           }`}
                         />
 
-                        {/* Click overlay layer (only active when placing new elements) */}
+                        {/* Click overlay layer */}
                         {activeTool !== "select" && activeTool !== "draw" && activeTool !== "eraser" && (
                           <div
                             onClick={(e) => {
@@ -1189,7 +1412,7 @@ export default function EditPdf() {
                               const pctX = (clickX / rect.width) * 100;
                               const pctY = (clickY / rect.height) * 100;
 
-                              setPendingCoords({ pageIndex: activePageIndex, x: pctX, y: pctY });
+                              setPendingCoords({ pageId: activePage.id, x: pctX, y: pctY });
                               if (activeTool === "text") {
                                 setTextVal("");
                                 setIsTextModalOpen(true);
@@ -1204,7 +1427,7 @@ export default function EditPdf() {
                         )}
 
                         {/* Interactive Drag & Resize Elements layer */}
-                        {elements.filter(el => el.pageIndex === activePageIndex).map((el) => {
+                        {elements.filter(el => el.pageId === activePage.id).map((el) => {
                           const isSelected = selectedElementId === el.id;
 
                           return (
@@ -1232,15 +1455,17 @@ export default function EditPdf() {
                               {/* Render Text element */}
                               {el.type === "text" && (
                                 <div
-                                  className="w-full h-full px-2 py-1 select-none font-bold text-xs truncate break-words pointer-events-none"
+                                  className="w-full h-full px-2 py-1 select-none break-words pointer-events-none"
                                   style={{
                                     color: el.color,
                                     backgroundColor: el.bgColor !== "transparent" ? el.bgColor : "transparent",
                                     fontSize: el.fontSize ? `${el.fontSize * (zoom / 100)}px` : "inherit",
-                                    fontFamily: el.fontFamily || "inherit"
+                                    fontFamily: el.fontFamily || "inherit",
+                                    fontStyle: el.fontStyle?.includes("italic") ? "italic" : "normal",
+                                    textAlign: el.alignment || "left"
                                   }}
                                 >
-                                   {el.text}
+                                   {renderFormattedText(el.text || "")}
                                 </div>
                               )}
 
@@ -1260,8 +1485,8 @@ export default function EditPdf() {
                               {el.type === "image" && el.imageUrl && (
                                 <img
                                   src={el.imageUrl}
-                                  alt="edit visual layer"
-                                  className="w-full h-full object-contain pointer-events-none select-none"
+                                  alt="visual node"
+                                  className="w-full h-full object-contain pointer-events-none select-none animate-in fade-in"
                                 />
                               )}
 
@@ -1280,7 +1505,7 @@ export default function EditPdf() {
                                   <button
                                     onMouseDown={(e) => e.stopPropagation()}
                                     onClick={(e) => { e.stopPropagation(); deleteElement(el.id); }}
-                                    className="absolute -top-3 -right-3 h-6 w-6 bg-red-600 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-750 shadow-md cursor-pointer z-40 font-bold"
+                                    className="absolute -top-3 -right-3 h-6 w-6 bg-red-600 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-700 shadow-md cursor-pointer z-40 font-bold"
                                   >
                                     &times;
                                   </button>
@@ -1300,7 +1525,7 @@ export default function EditPdf() {
             </div>
           )}
 
-          {/* Hidden image file upload input */}
+          {/* Image file upload */}
           <input
             type="file"
             ref={imageUploadRef}
@@ -1316,13 +1541,13 @@ export default function EditPdf() {
                 <i className="ri-checkbox-circle-fill text-emerald-500"></i>
               </div>
               <div className="space-y-1.5 text-center">
-                <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Document Edited Successfully!</h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">All your custom image layers, text boxes, and drawings have been permanently embedded.</p>
+                <h3 className="text-xl font-bold text-zinc-900 dark:text-white">PDF Compiled Successfully!</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 font-bold">Your custom document slides have been compiled offline in RAM.</p>
               </div>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
                 <a
                   href={outputUrl}
-                  download={`Edited_${file?.name}`}
+                  download="Created_Document.pdf"
                   className="w-full sm:w-auto px-5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <i className="ri-download-2-line"></i> Download PDF
@@ -1338,8 +1563,7 @@ export default function EditPdf() {
                 onClick={() => {
                   setOutputUrl(null);
                   setOutputBlob(null);
-                  setFile(null);
-                  setPdfPageImages([]);
+                  setPages([{ id: Math.random().toString(36).substring(2, 9), w: 595, h: 842 }]);
                   setElements([]);
                   setHistory([]);
                   setCanvasDrawings({});
@@ -1347,13 +1571,13 @@ export default function EditPdf() {
                 }}
                 className="text-xs font-semibold text-zinc-400 hover:underline cursor-pointer block mx-auto font-bold"
               >
-                Edit Another PDF
+                Create Another PDF
               </button>
             </div>
           )}
         </main>
 
-        {/* RIGHT AD COLUMN (Shown always to preserve spacing layout) */}
+        {/* RIGHT AD COLUMN */}
         {!isPremium && !isFullscreen && (
           <aside className="flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
             <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
@@ -1371,9 +1595,7 @@ export default function EditPdf() {
         )}
       </div>
 
-      {/* ======================================================== */}
-      {/* POPUP MODAL: ADD CUSTOM TEXT BLOCK                        */}
-      {/* ======================================================== */}
+      {/* POPUP MODAL: ADD CUSTOM TEXT BLOCK */}
       {isTextModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-150 p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-left animate-in zoom-in-95 duration-150">
@@ -1382,23 +1604,56 @@ export default function EditPdf() {
                 <i className="ri-text text-blue-500"></i>
                 <h3 className="font-black text-zinc-900 dark:text-white text-sm">Insert Text Block</h3>
               </div>
-              <button onClick={() => { setIsTextModalOpen(false); setPendingCoords(null); }} className="text-zinc-405 hover:text-zinc-650 text-lg font-bold">&times;</button>
+              <button onClick={() => { setIsTextModalOpen(false); setPendingCoords(null); }} className="text-zinc-400 hover:text-zinc-600 text-lg font-bold leading-none">&times;</button>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Format Presets</label>
+              <div className="flex gap-2">
+                {[
+                  { label: "Title", size: 28, style: "normal" as FontStyle },
+                  { label: "Heading", size: 18, style: "normal" as FontStyle },
+                  { label: "Subtitle", size: 14, style: "italic" as FontStyle },
+                  { label: "Body Text", size: 12, style: "normal" as FontStyle }
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => {
+                      setTextFontSize(preset.size);
+                      setTextFontStyle(preset.style);
+                    }}
+                    className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-lg text-[10px] font-bold transition text-zinc-700 dark:text-zinc-300 cursor-pointer"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Type Text Content</label>
-              <input
-                type="text"
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Type Text Content</label>
+                <button
+                  onClick={() => handleMakeBoldSelection(modalTextareaRef.current)}
+                  className="px-2 py-0.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded text-[9px] font-bold text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 transition cursor-pointer"
+                  title="Make selected text bold (**text**)"
+                >
+                  <i className="ri-bold"></i> Format Selection
+                </button>
+              </div>
+              <textarea
+                ref={modalTextareaRef}
+                rows={3}
                 value={textVal}
                 onChange={(e) => setTextVal(e.target.value)}
-                placeholder="Enter text..."
+                placeholder="Enter text here... select a word and click Format Selection to make only that portion bold!"
                 autoFocus
-                className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-zinc-900 dark:text-white font-bold"
+                className="w-full px-3 py-2 text-sm bg-zinc-55 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-zinc-900 dark:text-white font-bold resize-none"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3.5">
-              {/* Font Family */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Font Family</label>
                 <select
@@ -1412,7 +1667,6 @@ export default function EditPdf() {
                 </select>
               </div>
 
-              {/* Font Size */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Font Size</label>
                 <select
@@ -1420,14 +1674,64 @@ export default function EditPdf() {
                   onChange={(e) => setTextFontSize(parseInt(e.target.value))}
                   className="w-full px-2 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none font-bold text-zinc-800 dark:text-zinc-300 cursor-pointer"
                 >
-                  {[10, 12, 14, 16, 18, 20, 24, 28].map(sz => (
+                  {[10, 12, 14, 16, 18, 20, 24, 28, 32, 36].map(sz => (
                     <option key={sz} value={sz}>{sz}px</option>
                   ))}
                 </select>
               </div>
             </div>
 
-            {/* Text Color */}
+            {/* Font Style Weights & Text Alignment */}
+            <div className="grid grid-cols-2 gap-3.5">
+              {/* Font Style Toggle */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Font Style</label>
+                <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  {[
+                    { id: "normal", label: "Normal", icon: "ri-font-size" },
+                    { id: "italic", label: "Italic", icon: "ri-italic" }
+                  ].map((styleItem) => (
+                    <button
+                      key={styleItem.id}
+                      onClick={() => setTextFontStyle(styleItem.id as FontStyle)}
+                      title={styleItem.label}
+                      className={`h-7 flex-1 rounded-lg flex items-center justify-center transition cursor-pointer text-xs font-bold ${
+                        textFontStyle === styleItem.id
+                          ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm"
+                          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                      }`}
+                    >
+                      <i className={styleItem.icon}></i>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Text Alignment */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Alignment</label>
+                <div className="flex gap-1 bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  {[
+                    { id: "left", icon: "ri-align-left" },
+                    { id: "center", icon: "ri-align-center" },
+                    { id: "right", icon: "ri-align-right" }
+                  ].map((alignItem) => (
+                    <button
+                      key={alignItem.id}
+                      onClick={() => setTextAlignment(alignItem.id as TextAlignment)}
+                      className={`h-7 flex-1 rounded-lg flex items-center justify-center transition cursor-pointer text-xs font-bold ${
+                        textAlignment === alignItem.id
+                          ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm"
+                          : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                      }`}
+                    >
+                      <i className={alignItem.icon}></i>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Text Color</label>
               <div className="flex gap-2">
@@ -1440,7 +1744,7 @@ export default function EditPdf() {
                   <button
                     key={color.val}
                     onClick={() => setTextColor(color.val)}
-                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
                       textColor === color.val ? "ring-2 ring-blue-500/30 text-blue-500 border-blue-400" : "text-zinc-600 dark:text-zinc-400"
                     }`}
                   >
@@ -1451,7 +1755,6 @@ export default function EditPdf() {
               </div>
             </div>
 
-            {/* Background Style */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Highlight Background</label>
               <div className="flex gap-2">
@@ -1463,7 +1766,7 @@ export default function EditPdf() {
                   <button
                     key={color.val}
                     onClick={() => setTextBgColor(color.val)}
-                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition cursor-pointer ${
                       textBgColor === color.val ? "ring-2 ring-blue-500/30 text-blue-500 border-blue-400" : "text-zinc-600 dark:text-zinc-400"
                     }`}
                   >
@@ -1473,7 +1776,7 @@ export default function EditPdf() {
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 dark:border-zinc-850 pt-4 flex justify-end gap-3">
+            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 flex justify-end gap-3">
               <button onClick={() => { setIsTextModalOpen(false); setPendingCoords(null); }} className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs cursor-pointer">Cancel</button>
               <button onClick={handleSaveTextElement} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer">Insert</button>
             </div>
@@ -1481,23 +1784,20 @@ export default function EditPdf() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* POPUP MODAL: ADD CUSTOM SHAPE BLOCK                       */}
-      {/* ======================================================== */}
+      {/* POPUP MODAL: ADD CUSTOM SHAPE BLOCK */}
       {isShapeModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-150 p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-left animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-855 pb-2">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
               <div className="flex items-center gap-2">
                 <i className="ri-shapes-line text-blue-500"></i>
                 <h3 className="font-black text-zinc-900 dark:text-white text-sm">Add Shape Layer</h3>
               </div>
-              <button onClick={() => { setIsShapeModalOpen(false); setPendingCoords(null); }} className="text-zinc-400 hover:text-zinc-650 text-lg font-bold">&times;</button>
+              <button onClick={() => { setIsShapeModalOpen(false); setPendingCoords(null); }} className="text-zinc-400 hover:text-zinc-600 text-lg font-bold leading-none">&times;</button>
             </div>
 
-            {/* Shape Category */}
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-405 block">Shape Type</label>
+              <label className="text-[10px] font-bold text-zinc-400 block">Shape Type</label>
               <div className="grid grid-cols-2 gap-2 bg-zinc-100 dark:bg-zinc-950 p-1 rounded-xl">
                 {[
                   { id: "rectangle", label: "Rectangle / Box" },
@@ -1518,7 +1818,6 @@ export default function EditPdf() {
               </div>
             </div>
 
-            {/* Fill styles */}
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-400 block">Fill Style</label>
               <div className="flex flex-wrap gap-2">
@@ -1531,7 +1830,7 @@ export default function EditPdf() {
                   <button
                     key={col.val}
                     onClick={() => setShapeFillColor(col.val)}
-                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                    className={`px-3 py-1 bg-zinc-55 hover:bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition cursor-pointer ${
                       shapeFillColor === col.val ? "ring-2 ring-blue-500/30 text-blue-500 border-blue-400" : "text-zinc-600 dark:text-zinc-400"
                     }`}
                   >
@@ -1541,7 +1840,7 @@ export default function EditPdf() {
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 dark:border-zinc-850 pt-4 flex justify-end gap-3">
+            <div className="border-t border-zinc-200 dark:border-zinc-800 pt-4 flex justify-end gap-3">
               <button onClick={() => { setIsShapeModalOpen(false); setPendingCoords(null); }} className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs cursor-pointer">Cancel</button>
               <button onClick={handleSaveShapeElement} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer">Insert Shape</button>
             </div>
@@ -1557,7 +1856,7 @@ export default function EditPdf() {
               <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-500">AD</span>
               <p className="font-semibold text-[12px] text-zinc-500 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
             </div>
-            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-750 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
+            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-755 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
               Upgrade
             </Link>
           </div>
