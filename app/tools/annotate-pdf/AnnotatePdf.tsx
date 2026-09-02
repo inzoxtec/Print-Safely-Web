@@ -142,10 +142,10 @@ export default function AnnotatePdf() {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+      script.src = "/vendor/pdfjs-3.4.120/pdf.min.js";
       script.onload = () => {
         const pdfjs = (window as any).pdfjsLib;
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs-3.4.120/pdf.worker.min.js";
         resolve(pdfjs);
       };
       script.onerror = () => reject(new Error("Failed to load PDFJS"));

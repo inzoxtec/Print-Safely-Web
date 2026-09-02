@@ -61,7 +61,7 @@ export default function ImageToPdf() {
     if ((window as any).PDFLib) return (window as any).PDFLib;
     return new Promise((resolve) => {
       const script = document.createElement("script");
-      script.src = "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+      script.src = "/vendor/pdf-lib/pdf-lib.min.js";
       script.onload = () => resolve((window as any).PDFLib);
       document.head.appendChild(script);
     });

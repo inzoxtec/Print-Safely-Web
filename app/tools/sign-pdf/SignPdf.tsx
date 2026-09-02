@@ -8,6 +8,8 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import ToolSeoSection from "@/app/components/ToolSeoSection";
+import ToolSeoSchema from "@/app/components/ToolSeoSchema";
 
 type SignatureMode = "type" | "draw" | "upload";
 
@@ -120,10 +122,10 @@ export default function SignPdf() {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+      script.src = "/vendor/pdfjs-3.4.120/pdf.min.js";
       script.onload = () => {
         const pdfjs = (window as any).pdfjsLib;
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs-3.4.120/pdf.worker.min.js";
         resolve(pdfjs);
       };
       script.onerror = () => reject(new Error("Failed to load PDFJS"));
@@ -1083,6 +1085,40 @@ export default function SignPdf() {
         </div>
       )}
 
+      <ToolSeoSection
+        title="Sign PDF Online Free - Fill & Sign PDFs Privately"
+        subtitle="Create electronic signatures by drawing, typing cursive signatures, or uploading image signatures. 100% client-side privacy with no cloud uploads."
+        steps={[
+          { title: "Upload PDF", desc: "Select or drag your PDF file. Files process 100% locally in your browser memory." },
+          { title: "Create Signature", desc: "Draw with mouse/touch, type your name in cursive fonts, or upload a signature PNG." },
+          { title: "Place & Download", desc: "Position the signature stamp anywhere on your pages and download your signed PDF instantly." }
+        ]}
+        features={[
+          { icon: "🔒", title: "100% Client-Side Privacy", desc: "Your files never leave your computer. Signing is processed completely inside your browser." },
+          { icon: "✍️", title: "Multiple Signature Types", desc: "Draw with touch/mouse, type cursive signatures, or upload transparent PNG signature stamps." },
+          { icon: "⚡", title: "Instant & Free", desc: "No registration required, no subscription paywalls, and no digital watermarks on your signed files." }
+        ]}
+        faqs={[
+          { question: "Is it free to sign PDFs online with SafelyPrint?", answer: "Yes! SafelyPrint is 100% free with no hidden charges, trial limits, or document quotas." },
+          { question: "Are my documents uploaded to a remote server?", answer: "No. Unlike other tools, SafelyPrint processes PDF signing entirely in your browser using local JavaScript. Your sensitive documents are never uploaded to any server." },
+          { question: "Is an electronic signature created with SafelyPrint legally valid?", answer: "Yes. Electronic signatures added to PDFs are widely accepted for business agreements, receipts, non-disclosure agreements, and general forms." }
+        ]}
+      />
+      <ToolSeoSchema
+        name="Sign PDF Online Free"
+        description="Sign PDF documents online entirely in your browser. Add electronic signatures by drawing, typing names with cursive fonts, or uploading images securely."
+        url="https://printsafely.app/tools/sign-pdf"
+        steps={[
+          "Select or drag your PDF file into the secure signature canvas.",
+          "Create your custom electronic signature by drawing, typing, or uploading an image.",
+          "Position the signature on your PDF pages and download the signed document."
+        ]}
+        faqs={[
+          { question: "Is it free to sign PDFs online with SafelyPrint?", answer: "Yes! SafelyPrint is 100% free with no hidden charges, trial limits, or document quotas." },
+          { question: "Are my documents uploaded to a remote server?", answer: "No. Unlike other tools, SafelyPrint processes PDF signing entirely in your browser using local JavaScript. Your sensitive documents are never uploaded to any server." },
+          { question: "Is an electronic signature created with SafelyPrint legally valid?", answer: "Yes. Electronic signatures added to PDFs are widely accepted for business agreements, receipts, non-disclosure agreements, and general forms." }
+        ]}
+      />
       <Footer />
     </div>
   );

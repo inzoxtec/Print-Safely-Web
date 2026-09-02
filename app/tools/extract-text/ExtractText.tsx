@@ -47,10 +47,10 @@ export default function ExtractText() {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
     return new Promise((resolve) => {
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+      script.src = "/vendor/pdfjs-3.4.120/pdf.min.js";
       script.onload = () => {
         const pdfjs = (window as any).pdfjsLib;
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs-3.4.120/pdf.worker.min.js";
         resolve(pdfjs);
       };
       document.head.appendChild(script);
@@ -61,7 +61,7 @@ export default function ExtractText() {
     if ((window as any).Tesseract) return (window as any).Tesseract;
     return new Promise((resolve) => {
       const script = document.createElement("script");
-      script.src = "https://unpkg.com/tesseract.js@4.0.1/dist/tesseract.min.js";
+      script.src = "/vendor/tesseract/tesseract.min.js";
       script.onload = () => resolve((window as any).Tesseract);
       document.head.appendChild(script);
     });

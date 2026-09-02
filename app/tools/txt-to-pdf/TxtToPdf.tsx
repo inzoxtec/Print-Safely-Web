@@ -60,7 +60,7 @@ export default function TxtToPdf() {
 
   const loadAllEngines = async () => {
     setProgressMsg("Loading rendering engines...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
+    await loadScript("/vendor/docx/html2pdf.bundle.min.js", "html2pdf");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -60,8 +60,8 @@ export default function ExcelToPdf() {
 
   const loadAllEngines = async () => {
     setProgressMsg("Loading Excel extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
+    await loadScript("/vendor/excel/xlsx.full.min.js", "XLSX");
+    await loadScript("/vendor/docx/html2pdf.bundle.min.js", "html2pdf");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -57,9 +57,9 @@ export default function DocxPdf() {
 
   const loadAllEngines = async () => {
     setProgressMsg("Loading extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", "JSZip");
-    await loadScript("https://unpkg.com/docx-preview@0.1.15/dist/docx-preview.min.js", "docx");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
+    await loadScript("/vendor/docx/jszip.min.js", "JSZip");
+    await loadScript("/vendor/docx/docx-preview.min.js", "docx");
+    await loadScript("/vendor/docx/html2pdf.bundle.min.js", "html2pdf");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,41 +104,142 @@ export default function DocxPdf() {
       setProgressMsg("Rendering Word elements locally...");
       const docxEngine = (window as any).docx;
       await docxEngine.renderAsync(arrayBuffer, hiddenContainer, null, {
-        inWrapper: false,
-        ignoreWidth: true,
-        ignoreHeight: true
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        ignoreFonts: false,
+        breakPages: true,
+        ignoreLastRenderedPageBreak: false,
+        experimental: true,
+        useBase64URL: true
       });
+
+      // Convert any rendered <canvas> elements (VML drawings/shapes) into visible <img> tags
+      const canvases = Array.from(hiddenContainer.querySelectorAll("canvas"));
+      canvases.forEach((canvas) => {
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          const img = document.createElement("img");
+          img.src = dataUrl;
+          img.style.maxWidth = "100%";
+          img.style.display = "block";
+          img.style.margin = "10px auto";
+          canvas.parentNode?.replaceChild(img, canvas);
+        } catch (e) {
+          console.warn("Canvas conversion notice:", e);
+        }
+      });
+
+      // Inject CSS image rules to ensure all images & shapes are visible
+      const styleElement = document.createElement("style");
+      styleElement.innerHTML = `
+        #docx-render-container img,
+        #docx-render-container svg image {
+          max-width: 100% !important;
+          height: auto !important;
+          display: block !important;
+          margin: 10px auto !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        #docx-render-container .docx-wrapper {
+          background: transparent !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+        #docx-render-container section.docx {
+          box-shadow: none !important;
+          margin: 0 !important;
+        }
+      `;
+      hiddenContainer.appendChild(styleElement);
+
+      // Extract all <img> tags and ensure complete loading
+      const images = Array.from(hiddenContainer.querySelectorAll("img"));
+      await Promise.all(
+        images.map(async (img) => {
+          try {
+            img.style.maxWidth = "100%";
+            img.style.height = "auto";
+            img.style.display = "block";
+            img.style.visibility = "visible";
+            img.style.opacity = "1";
+
+            if (!img.complete) {
+              await new Promise((resolve) => {
+                img.onload = resolve;
+                img.onerror = resolve;
+                setTimeout(resolve, 500);
+              });
+            }
+            if (img.src && img.src.startsWith("blob:")) {
+              const response = await fetch(img.src);
+              const blob = await response.blob();
+              await new Promise<void>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  if (typeof reader.result === "string") {
+                    img.src = reader.result;
+                  }
+                  resolve();
+                };
+                reader.readAsDataURL(blob);
+              });
+            }
+          } catch (e) {
+            console.warn("Image processing notice:", e);
+          }
+        })
+      );
 
       setProgressMsg("Compiling final vector PDF file...");
 
-      // 1. Temporarily override String.fromCodePoint to catch and bypass HTML2Canvas crashes
+      // 1. Temporarily override String.fromCodePoint & console.error to catch and bypass HTML2Canvas non-fatal warnings
       String.fromCodePoint = function (...codePoints: number[]) {
         try {
           return originalFromCodePoint.apply(this, codePoints);
         } catch (err) {
-          // Bypasses the RangeError: Invalid code point NaN
           return "";
         }
       };
 
-      // 2. Generate PDF via html2pdf using outputPdf("blob") and margin: 0
-      const html2pdfEngine = (window as any).html2pdf;
-      const pdfOptions = {
-        margin: 0,
-        filename: `${file.name.replace(".docx", "")}.pdf`,
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true }, 
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      const originalConsoleError = console.error;
+      console.error = function (...args: any[]) {
+        if (args.length > 0 && typeof args[0] === "string" && args[0].includes("Error loading image")) {
+          return; // Ignore non-fatal html2canvas CSS/font image warning logs
+        }
+        originalConsoleError.apply(console, args);
       };
 
-      const pdfBlobOutput = await html2pdfEngine()
-        .from(hiddenContainer)
-        .set(pdfOptions)
-        .outputPdf("blob");
+      try {
+        // 2. Generate PDF via html2pdf using outputPdf("blob") and margin: 0
+        const html2pdfEngine = (window as any).html2pdf;
+        const pdfOptions = {
+          margin: 0,
+          filename: `${file.name.replace(/\.(docx|doc)$/i, "")}.pdf`,
+          image: { type: "jpeg", quality: 0.95 },
+          html2canvas: { 
+            scale: 2, 
+            useCORS: true,
+            allowTaint: true,
+            logging: false,
+            imageTimeout: 0
+          }, 
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+        };
 
-      const url = URL.createObjectURL(pdfBlobOutput);
-      setOutputBlob(pdfBlobOutput);
-      setOutputUrl(url);
+        const pdfBlobOutput = await html2pdfEngine()
+          .from(hiddenContainer)
+          .set(pdfOptions)
+          .outputPdf("blob");
+
+        const url = URL.createObjectURL(pdfBlobOutput);
+        setOutputBlob(pdfBlobOutput);
+        setOutputUrl(url);
+
+      } finally {
+        console.error = originalConsoleError;
+      }
 
     } catch (err) {
       console.error("PDF local compilation failure:", err);

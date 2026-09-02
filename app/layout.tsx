@@ -12,6 +12,7 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://printsafely.app"),
   title: {
     template: "%s | SafelyPrint",
     default: "SafelyPrint - Secure Print Link & PDF Toolbox",
