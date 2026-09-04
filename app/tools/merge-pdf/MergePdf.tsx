@@ -8,6 +8,9 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import ToolSeoSection from "@/app/components/ToolSeoSection";
+import ToolSeoSchema from "@/app/components/ToolSeoSchema";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 interface FileItem {
   id: string;
@@ -61,7 +64,7 @@ export default function MergePdf() {
     if ((window as any).PDFLib) return (window as any).PDFLib;
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js";
+      script.src = "/vendor/pdf-lib/pdf-lib.min.js";
       script.onload = () => resolve((window as any).PDFLib);
       script.onerror = () => reject(new Error("Failed to load PDF-Lib"));
       document.head.appendChild(script);
@@ -214,6 +217,14 @@ export default function MergePdf() {
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Merge PDF", url: "https://printsafely.app/tools/merge-pdf" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-merge-cells-horizontal text-blue-600 dark:text-blue-500"></i> Merge PDF Documents
@@ -399,6 +410,40 @@ export default function MergePdf() {
         </div>
       )}
 
+      <ToolSeoSection
+        title="Merge PDF Online Free - Combine PDF Files Privately"
+        subtitle="Combine multiple PDF documents into a single organized file online for free. Drag and drop to reorder pages with 100% client-side privacy."
+        steps={[
+          { title: "Select PDF Files", desc: "Choose two or more PDF files from your computer or mobile device." },
+          { title: "Arrange Order", desc: "Drag and drop thumbnails to combine pages in your exact preferred sequence." },
+          { title: "Merge & Save", desc: "Click Merge PDF to compile your documents instantly and download the combined PDF." }
+        ]}
+        features={[
+          { icon: "⚡", title: "Instant & Local", desc: "Merging is performed locally in your browser with zero upload delay." },
+          { icon: "🔒", title: "100% Confidential", desc: "Your PDF files are never uploaded to any remote server or cloud database." },
+          { icon: "📑", title: "Unlimited Pages", desc: "Combine multiple PDF documents together without page count restrictions." }
+        ]}
+        faqs={[
+          { question: "Is it safe to merge PDF files with SafelyPrint?", answer: "Yes! SafelyPrint operates entirely client-side using JavaScript. Your files remain on your computer throughout the merging process." },
+          { question: "Can I reorder PDF pages before combining?", answer: "Absolutely. You can drag and drop file cards to rearrange the merging order prior to downloading." },
+          { question: "Are there any file size limits for combining PDFs?", answer: "You can combine standard files up to 10MB each on free accounts, or up to 20 files simultaneously." }
+        ]}
+      />
+      <ToolSeoSchema
+        name="Merge PDF Online Free"
+        description="Combine multiple PDF files into a single document locally in your browser. No server uploads, keeping your documents 100% private."
+        url="https://printsafely.app/tools/merge-pdf"
+        steps={[
+          "Upload two or more PDF documents into the merge tool sandbox.",
+          "Drag and drop file cards to set your preferred combining sequence.",
+          "Click Merge PDF to compile and download your merged document instantly."
+        ]}
+        faqs={[
+          { question: "Is it safe to merge PDF files with SafelyPrint?", answer: "Yes! SafelyPrint operates entirely client-side using JavaScript. Your files remain on your computer throughout the merging process." },
+          { question: "Can I reorder PDF pages before combining?", answer: "Absolutely. You can drag and drop file cards to rearrange the merging order prior to downloading." },
+          { question: "Are there any file size limits for combining PDFs?", answer: "You can combine standard files up to 10MB each on free accounts, or up to 20 files simultaneously." }
+        ]}
+      />
       <Footer />
     </div>
   );

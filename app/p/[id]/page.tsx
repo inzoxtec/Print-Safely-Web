@@ -7,6 +7,8 @@ import { doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { decryptFile } from "@/lib/crypto";
 import Link from "next/link";
+import { useSafelyPrintExtension, EXTENSION_ID } from "@/app/hooks/useSafelyPrintExtension";
+import PrintSetupModal, { PrintSettings } from "@/app/components/PrintSetupModal";
 
 interface FileItem {
   name: string;
@@ -58,10 +60,10 @@ function SecurePrintPageContent() {
       if ((window as any).pdfjsLib) return;
 
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      script.src = "/vendor/pdfjs-3.11.174/pdf.min.js";
       script.onload = () => {
         (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = 
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+          "/vendor/pdfjs-3.11.174/pdf.worker.min.js";
       };
       document.body.appendChild(script);
     };
@@ -422,16 +424,174 @@ function SecurePrintPageContent() {
     };
   }, [authorized]);
 
+  // Modal & Print Customization states
+  const [isPrintSetupOpen, setIsPrintSetupOpen] = useState(false);
+  const [pendingSingleIndex, setPendingSingleIndex] = useState<number | null>(null);
+
+  const triggerPrintModal = (singleIndex: number | null = null) => {
+    if (!extensionInstalled) {
+      // Direct browser print without showing modal when extension is not installed
+      if (singleIndex !== null) {
+        handlePrintSingle(singleIndex);
+      } else {
+        handlePrint();
+      }
+      return;
+    }
+
+    setPendingSingleIndex(singleIndex);
+    setIsPrintSetupOpen(true);
+  };
+
+  const executePrintWithSettings = async (settings: PrintSettings) => {
+    setIsPrintSetupOpen(false);
+
+    // 1. Inject dynamic CSS print settings rule into document
+    const oldStyle = document.getElementById("safelyprint-dynamic-page-style");
+    if (oldStyle) oldStyle.remove();
+
+    const styleEl = document.createElement("style");
+    styleEl.id = "safelyprint-dynamic-page-style";
+
+    let sizeCss = "auto";
+    if (settings.paperSize === "a4") {
+      sizeCss = settings.orientation === "landscape" ? "A4 landscape" : "A4 portrait";
+    } else if (settings.paperSize === "letter") {
+      sizeCss = settings.orientation === "landscape" ? "letter landscape" : "letter portrait";
+    } else if (settings.paperSize === "legal") {
+      sizeCss = settings.orientation === "landscape" ? "legal landscape" : "legal portrait";
+    } else if (settings.paperSize === "idcard") {
+      sizeCss = "85.6mm 53.98mm landscape";
+    } else if (settings.orientation === "landscape") {
+      sizeCss = "landscape";
+    } else if (settings.orientation === "portrait") {
+      sizeCss = "portrait";
+    }
+
+    const marginCss = settings.margin === "none" ? "0mm" : settings.margin === "minimal" ? "5mm" : "auto";
+
+    styleEl.innerHTML = `
+      @media print {
+        @page {
+          size: ${sizeCss} !important;
+          margin: ${marginCss} !important;
+        }
+      }
+    `;
+    document.head.appendChild(styleEl);
+
+    // 2. Extension Direct Printing Pipeline
+    if (extensionInstalled && settings.selectedFileIndices.length > 0) {
+      setPrinting(true);
+      setPrintStatusMessage("Sending document(s) to physical printer via SafelyPrint Extension...");
+
+      let sentCount = 0;
+      for (const fileIdx of settings.selectedFileIndices) {
+        const file = decryptedFiles[fileIdx];
+        if (file && file.decryptedUrl) {
+          try {
+            const base64 = await blobUrlToBase64(file.decryptedUrl);
+            const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+            await printBase64(base64, ext, {
+              printerName: settings.targetPrinter,
+              paperSize: settings.paperSize,
+              orientation: settings.orientation,
+              margin: settings.margin,
+            });
+            sentCount++;
+          } catch (err) {
+            console.error("Extension print error:", err);
+          }
+        }
+      }
+
+      setPrinting(false);
+
+      if (sentCount > 0) {
+        setPrintStatusMessage(
+          sentCount === 1
+            ? `File printed successfully via Extension.`
+            : `${sentCount} documents printed successfully via Extension.`
+        );
+
+        // Record print attempt
+        const newCount = (docData.printCount || 0) + 1;
+        const docRef = doc(db, "documents", docId);
+        await updateDoc(docRef, { printCount: newCount });
+
+        if (newCount >= docData.printLimit) {
+          await destroyDocumentData();
+        }
+      } else {
+        setPrintStatusMessage("Failed to print: Extension transmission error.");
+      }
+      return;
+    }
+
+    // 3. Standard Fallback Web Printing
+    if (pendingSingleIndex !== null) {
+      await handlePrintSingle(pendingSingleIndex);
+    } else {
+      await handlePrint();
+    }
+  };
+
+  // Chrome Extension Integration
+  const { extensionInstalled, printers, refreshPrinters, printBase64, status: extStatus } = useSafelyPrintExtension();
+
+  // Helper to convert blob URL to Base64
+  const blobUrlToBase64 = async (blobUrl: string): Promise<string> => {
+    const response = await fetch(blobUrl);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = reader.result as string;
+        resolve(res.includes(",") ? res.split(",")[1] : res);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
   // 7. Print Trigger Action: Print Entire Package
   const handlePrint = async () => {
     setPrinting(true);
 
+    if (extensionInstalled && decryptedFiles.length > 0) {
+      try {
+        setPrintStatusMessage("Sending package to physical printer via SafelyPrint Extension...");
+        for (let i = 0; i < decryptedFiles.length; i++) {
+          const file = decryptedFiles[i];
+          if (file.decryptedUrl) {
+            const base64 = await blobUrlToBase64(file.decryptedUrl);
+            const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+            await printBase64(base64, ext);
+          }
+        }
+        setPrinting(false);
+        setPrintStatusMessage("Entire package printed successfully via Extension.");
+
+        // Record print attempt
+        const newCount = (docData.printCount || 0) + 1;
+        const docRef = doc(db, "documents", docId);
+        await updateDoc(docRef, { printCount: newCount });
+
+        if (newCount >= docData.printLimit) {
+          await destroyDocumentData();
+        }
+        return;
+      } catch (err) {
+        console.error("Extension print error:", err);
+      }
+    }
+
+    // Standard Fallback Printing
     const afterPrint = async () => {
       window.removeEventListener("afterprint", afterPrint);
       setPrinting(false);
       setPrintStatusMessage("Entire package sent to printer queue successfully.");
 
-      // Wipe documents immediately if print attempt limit is exhausted
       if (docData.printCount >= docData.printLimit) {
         await destroyDocumentData();
       }
@@ -446,13 +606,42 @@ function SecurePrintPageContent() {
     setActivePrintIndex(index);
     setPrinting(true);
 
+    if (extensionInstalled && decryptedFiles[index]?.decryptedUrl) {
+      try {
+        const file = decryptedFiles[index];
+        setPrintStatusMessage(`Sending "${file.name}" to printer via SafelyPrint Extension...`);
+        const base64 = await blobUrlToBase64(file.decryptedUrl!);
+        const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+        const success = await printBase64(base64, ext);
+
+        setActivePrintIndex(null);
+        setPrinting(false);
+
+        if (success) {
+          setPrintStatusMessage(`File "${file.name}" printed successfully via Extension.`);
+          const newCount = (docData.printCount || 0) + 1;
+          const docRef = doc(db, "documents", docId);
+          await updateDoc(docRef, { printCount: newCount });
+
+          if (newCount >= docData.printLimit) {
+            await destroyDocumentData();
+          }
+        } else {
+          setPrintStatusMessage(`Failed to print "${file.name}": Extension error.`);
+        }
+        return;
+      } catch (err) {
+        console.error("Single extension print error:", err);
+      }
+    }
+
+    // Standard Fallback Printing
     const afterPrintSingle = async () => {
       window.removeEventListener("afterprint", afterPrintSingle);
       setActivePrintIndex(null);
       setPrinting(false);
       setPrintStatusMessage(`File "${decryptedFiles[index].name}" printed successfully.`);
 
-      // Wipe documents immediately if print attempt limit is exhausted
       if (docData.printCount >= docData.printLimit) {
         await destroyDocumentData();
       }
@@ -604,11 +793,11 @@ function SecurePrintPageContent() {
         
         <div className="flex gap-2">
           <button
-            onClick={handlePrint}
+            onClick={() => triggerPrintModal(null)}
             disabled={printing}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-750 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-semibold shadow active:scale-95 transition-all cursor-pointer disabled:opacity-50"
           >
-            Print Entire Package
+            {extensionInstalled ? "⚡ Silent Hardware Print (Extension Active)" : "Print Entire Package"}
           </button>
 
           <button
@@ -628,6 +817,75 @@ function SecurePrintPageContent() {
           {/* SCREEN GRID/LIST VIEW (Hidden during print) */}
           <div className="max-w-4xl w-full space-y-4 print:hidden">
             
+            {/* Extension Connection & Marketing Security Banner */}
+            {extensionInstalled ? (
+              <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-800/40 text-xs flex items-center justify-between shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-xl font-bold">
+                    ⚡
+                  </div>
+                  <div>
+                    <span className="font-bold text-white text-sm block">SafelyPrint Chrome Extension Connected</span>
+                    <span className="text-emerald-400/90 text-[11px]">
+                      Direct hardware printing enabled. Digital downloads and "Save as PDF" are 100% blocked.
+                    </span>
+                  </div>
+                </div>
+                <span className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl font-bold text-[10px]">
+                  🛡️ 100% Hardware Encrypted
+                </span>
+              </div>
+            ) : (
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-blue-950/40 via-zinc-900 to-zinc-900 border border-blue-800/40 text-xs shadow-xl space-y-3.5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="h-10 w-10 rounded-2xl bg-blue-600/15 border border-blue-500/30 text-blue-400 flex items-center justify-center text-xl font-bold flex-shrink-0 mt-0.5">
+                      🛡️
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-white text-sm">Make Your Document 100% Digitally Secure</span>
+                        <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black uppercase px-2 py-0.5 rounded-md">
+                          Recommended for Print Shops
+                        </span>
+                      </div>
+                      <p className="text-zinc-300 text-xs leading-relaxed max-w-2xl">
+                        To make your document 100% digitally secure, eliminate file download leaks, and block "Save as PDF" options, please <strong className="text-white">install the SafelyPrint Chrome Extension</strong> or ask your print shop to add it.
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href={`https://chromewebstore.google.com/detail/safelyprint/${EXTENSION_ID}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-shrink-0 flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-blue-600/20 active:scale-95 transition-all text-xs cursor-pointer border border-blue-400/30"
+                  >
+                    <span>🔌 Install Chrome Extension</span>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </a>
+                </div>
+
+                {/* Security Benefits */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-zinc-800/80 text-[10px] text-zinc-400 font-medium">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Direct Hardware Spooling</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Blocks "Save as PDF" Leaks</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Zero Digital Downloads</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Permanent Print Attempt Tracker Card */}
             {docData && (
               <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between text-xs shadow-md">
@@ -706,7 +964,7 @@ function SecurePrintPageContent() {
 
                     {/* Print Individual Document Button */}
                     <button
-                      onClick={() => handlePrintSingle(index)}
+                      onClick={() => triggerPrintModal(index)}
                       disabled={printing}
                       className="bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-white px-3.5 py-2 rounded-sm text-xs font-bold transition cursor-pointer pointer-events-auto border border-zinc-700"
                     >
@@ -843,6 +1101,16 @@ function SecurePrintPageContent() {
           }
         }
       `}</style>
+      <PrintSetupModal
+        isOpen={isPrintSetupOpen}
+        onClose={() => setIsPrintSetupOpen(false)}
+        onConfirmPrint={executePrintWithSettings}
+        files={decryptedFiles}
+        extensionInstalled={extensionInstalled}
+        singleFileIndex={pendingSingleIndex}
+        printers={printers}
+        refreshPrinters={refreshPrinters}
+      />
     </div>
   );
 }

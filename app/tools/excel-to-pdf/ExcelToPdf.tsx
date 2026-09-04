@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export default function ExcelToPdf() {
   const { user } = useAuth();
@@ -60,8 +61,8 @@ export default function ExcelToPdf() {
 
   const loadAllEngines = async () => {
     setProgressMsg("Loading Excel extraction libraries...");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", "XLSX");
-    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js", "html2pdf");
+    await loadScript("/vendor/excel/xlsx.full.min.js", "XLSX");
+    await loadScript("/vendor/docx/html2pdf.bundle.min.js", "html2pdf");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,6 +266,14 @@ export default function ExcelToPdf() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Excel to PDF", url: "https://printsafely.app/tools/excel-to-pdf" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-file-excel-line text-green-600 dark:text-green-500"></i> Excel to PDF Converter

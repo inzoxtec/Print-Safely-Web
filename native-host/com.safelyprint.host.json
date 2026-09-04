@@ -1,0 +1,9 @@
+{
+  "name": "com.safelyprint.host",
+  "description": "SafelyPrint native messaging host",
+  "path": "C:\\Users\\Pankaj sharma\\Documents\\frontend\\print-safely\\native-host\\launch_print_helper.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://oghpnokdiobpognojmkikacokdaanoni/"
+  ]
+}

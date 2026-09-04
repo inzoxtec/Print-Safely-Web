@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 interface PagePreview {
   num: number;
@@ -62,10 +63,10 @@ export default function PdfToImage() {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
     return new Promise((resolve) => {
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+      script.src = "/vendor/pdfjs-3.4.120/pdf.min.js";
       script.onload = () => {
         const pdfjs = (window as any).pdfjsLib;
-        pdfjs.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs-3.4.120/pdf.worker.min.js";
         resolve(pdfjs);
       };
       document.head.appendChild(script);
@@ -76,7 +77,7 @@ export default function PdfToImage() {
     if ((window as any).JSZip) return (window as any).JSZip;
     return new Promise((resolve) => {
       const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+      script.src = "/vendor/docx/jszip.min.js";
       script.onload = () => resolve((window as any).JSZip);
       document.head.appendChild(script);
     });
@@ -243,6 +244,14 @@ export default function PdfToImage() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "PDF to Image", url: "https://printsafely.app/tools/pdf-to-image" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-file-image-line text-blue-600 dark:text-blue-500"></i> PDF to Image Converter
