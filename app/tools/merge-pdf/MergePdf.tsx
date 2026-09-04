@@ -10,6 +10,7 @@ import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 import ToolSeoSection from "@/app/components/ToolSeoSection";
 import ToolSeoSchema from "@/app/components/ToolSeoSchema";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 interface FileItem {
   id: string;
@@ -216,6 +217,14 @@ export default function MergePdf() {
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
           
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Merge PDF", url: "https://printsafely.app/tools/merge-pdf" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-merge-cells-horizontal text-blue-600 dark:text-blue-500"></i> Merge PDF Documents

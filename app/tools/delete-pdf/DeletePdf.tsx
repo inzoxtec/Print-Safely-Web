@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 interface PageThumbnail {
   index: number;
@@ -210,6 +211,14 @@ export default function DeletePdf() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Delete PDF Pages", url: "https://printsafely.app/tools/delete-pdf" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-delete-bin-6-line text-blue-600 dark:text-blue-500"></i> Delete PDF Pages

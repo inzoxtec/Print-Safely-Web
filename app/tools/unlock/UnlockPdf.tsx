@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export default function UnlockPdf() {
   const { user } = useAuth();
@@ -166,6 +167,14 @@ export default function UnlockPdf() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Unlock PDF", url: "https://printsafely.app/tools/unlock" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-lock-unlock-line text-rose-600 dark:text-rose-500"></i> Unlock PDF (Remove Password)

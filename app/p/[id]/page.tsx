@@ -492,7 +492,12 @@ function SecurePrintPageContent() {
           try {
             const base64 = await blobUrlToBase64(file.decryptedUrl);
             const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
-            await printBase64(base64, ext);
+            await printBase64(base64, ext, {
+              printerName: settings.targetPrinter,
+              paperSize: settings.paperSize,
+              orientation: settings.orientation,
+              margin: settings.margin,
+            });
             sentCount++;
           } catch (err) {
             console.error("Extension print error:", err);
@@ -532,7 +537,7 @@ function SecurePrintPageContent() {
   };
 
   // Chrome Extension Integration
-  const { extensionInstalled, printBase64, status: extStatus } = useSafelyPrintExtension();
+  const { extensionInstalled, printers, refreshPrinters, printBase64, status: extStatus } = useSafelyPrintExtension();
 
   // Helper to convert blob URL to Base64
   const blobUrlToBase64 = async (blobUrl: string): Promise<string> => {
@@ -1103,6 +1108,8 @@ function SecurePrintPageContent() {
         files={decryptedFiles}
         extensionInstalled={extensionInstalled}
         singleFileIndex={pendingSingleIndex}
+        printers={printers}
+        refreshPrinters={refreshPrinters}
       />
     </div>
   );

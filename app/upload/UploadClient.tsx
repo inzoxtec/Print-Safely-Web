@@ -10,6 +10,7 @@ import { compressImage, encryptFile, chunkString } from "@/lib/crypto";
 import Link from "next/link";
 import ToolSeoSection from "@/app/components/ToolSeoSection";
 import ToolSeoSchema from "@/app/components/ToolSeoSchema";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 interface UploadedFileMetadata {
   name: string;
@@ -387,6 +388,12 @@ export default function UploadClient() {
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-50/50 via-zinc-50 to-blue-100/30 dark:from-zinc-950 dark:via-zinc-900 dark:to-blue-950/20 px-4 py-12 transition-colors duration-300">
       <div className="w-full max-w-lg bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-zinc-200/50 dark:border-zinc-800/50 shadow-2xl rounded-2xl p-8 space-y-6">
+        <BreadcrumbSchema
+          items={[
+            { name: "Home", url: "https://printsafely.app" },
+            { name: "Secure Link Generator", url: "https://printsafely.app/upload" },
+          ]}
+        />
         
         {/* Toggle Flag Box for Testing */}
         <div className="flex items-center justify-between p-3 bg-zinc-100 dark:bg-zinc-950 rounded-xl border border-zinc-200/40 dark:border-zinc-800/30 text-xs">

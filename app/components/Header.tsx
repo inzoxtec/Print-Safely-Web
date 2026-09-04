@@ -122,12 +122,12 @@ export default function Header() {
             <img
                 src="/logo-dark.svg"
                 alt="SafelyPrint Logo"
-                className="h-7 w-auto block dark:hidden"
+                className="h-9 w-auto block dark:hidden"
             />
             <img
                 src="/logo-light.svg" 
                 alt="SafelyPrint Logo"
-                className="h-7 w-auto hidden dark:block"
+                className="h-9 w-auto hidden dark:block"
             />
         </Link>
         </div>

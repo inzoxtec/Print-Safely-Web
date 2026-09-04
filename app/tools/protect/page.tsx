@@ -1,4 +1,3 @@
-// app/tools/protect/page.tsx
 import { Metadata } from "next";
 import ProtectPdf from "./ProtectPdf";
 

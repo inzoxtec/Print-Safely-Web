@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 type AnnotationTool = "select" | "pen" | "highlight" | "text" | "eraser";
 
@@ -700,6 +701,16 @@ export default function AnnotatePdf() {
             ? "fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 h-screen max-w-full" 
             : ""
         }`}>
+          {!isFullscreen && (
+            <BreadcrumbSchema
+              items={[
+                { name: "Home", url: "https://printsafely.app" },
+                { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+                { name: "Annotate PDF", url: "https://printsafely.app/tools/annotate-pdf" },
+              ]}
+            />
+          )}
+
           <div className="w-full space-y-2 text-left flex items-start justify-between">
             <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>

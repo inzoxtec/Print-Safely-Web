@@ -25,6 +25,8 @@ interface PrintSetupModalProps {
   files: FileItem[];
   extensionInstalled: boolean;
   singleFileIndex?: number | null;
+  printers?: string[];
+  refreshPrinters?: () => void;
 }
 
 export default function PrintSetupModal({
@@ -34,6 +36,8 @@ export default function PrintSetupModal({
   files,
   extensionInstalled,
   singleFileIndex = null,
+  printers = [],
+  refreshPrinters,
 }: PrintSetupModalProps) {
   // Preset state
   const [preset, setPreset] = useState<"custom" | "idcard" | "standard" | "certificate">("standard");
@@ -47,28 +51,36 @@ export default function PrintSetupModal({
   const [margin, setMargin] = useState<"none" | "default" | "minimal">("none");
 
   // Printer Selection state
-  const [targetPrinter, setTargetPrinter] = useState<string>("default");
-  const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
+  const [targetPrinter, setTargetPrinter] = useState<string>("");
 
-  // Sync printer list dynamically based on extension connection state
+  // Sync printers list and trigger refresh when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      if (refreshPrinters) {
+        refreshPrinters();
+      }
+    }
+  }, [isOpen, refreshPrinters]);
+
+  // Set default target printer when printers list updates
   useEffect(() => {
     if (extensionInstalled) {
-      setAvailablePrinters(["⚡ SafelyPrint Direct Hardware Printer (Extension Connected)"]);
-      setTargetPrinter("⚡ SafelyPrint Direct Hardware Printer (Extension Connected)");
+      if (printers && printers.length > 0) {
+        setTargetPrinter(printers[0]);
+      } else {
+        setTargetPrinter("Default Hardware Printer");
+      }
     } else {
-      setAvailablePrinters(["Default Web Printer Driver (Browser Dialog)"]);
       setTargetPrinter("Default Web Printer Driver (Browser Dialog)");
     }
-  }, [extensionInstalled, isOpen]);
+  }, [printers, extensionInstalled, isOpen]);
 
   // Sync file selection when modal opens
   useEffect(() => {
     if (isOpen) {
       if (singleFileIndex !== null && singleFileIndex >= 0 && singleFileIndex < files.length) {
-        // Individual file mode: select only the single clicked file
         setSelectedFileIndices([singleFileIndex]);
       } else {
-        // Entire package mode: select all files by default
         const allIndices = files.map((_, idx) => idx);
         setSelectedFileIndices(allIndices);
       }
@@ -94,12 +106,11 @@ export default function PrintSetupModal({
   };
 
   const toggleFileSelection = (fileIdx: number) => {
-    // Only allow toggling if in package mode
     if (singleFileIndex !== null) return;
     
     setSelectedFileIndices((prev) => {
       if (prev.includes(fileIdx)) {
-        if (prev.length === 1) return prev; // Keep at least 1 file selected
+        if (prev.length === 1) return prev;
         return prev.filter((i) => i !== fileIdx);
       } else {
         return [...prev, fileIdx].sort((a, b) => a - b);
@@ -122,6 +133,9 @@ export default function PrintSetupModal({
 
   const isSingleFileMode = singleFileIndex !== null && singleFileIndex >= 0;
   const singleFile = isSingleFileMode ? files[singleFileIndex] : null;
+
+  // Determine if print button should be disabled when extension is installed but no printer found
+  const noPrintersFound = extensionInstalled && printers.length === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -211,20 +225,27 @@ export default function PrintSetupModal({
               <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
                 extensionInstalled ? "bg-emerald-950 text-emerald-400 border border-emerald-800/40" : "bg-zinc-800 text-zinc-400"
               }`}>
-                {extensionInstalled ? "⚡ Hardware Extension Active" : "Standard Web Driver"}
+                {extensionInstalled ? "⚡ Extension Active" : "Standard Web Driver"}
               </span>
             </div>
-            <select
-              value={targetPrinter}
-              onChange={(e) => setTargetPrinter(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-            >
-              {availablePrinters.map((printerName, i) => (
-                <option key={i} value={printerName}>
-                  {printerName}
-                </option>
-              ))}
-            </select>
+
+            {extensionInstalled ? (
+              <select
+                value={targetPrinter}
+                onChange={(e) => setTargetPrinter(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-200 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              >
+                {(printers.length > 0 ? printers : ["Default Hardware Printer"]).map((printerName, i) => (
+                  <option key={i} value={printerName}>
+                    🖨️ {printerName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="px-3.5 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-400 text-xs">
+                Default Web Printer Driver (Browser Dialog)
+              </div>
+            )}
           </div>
 
           {/* Layout & Paper Configuration */}

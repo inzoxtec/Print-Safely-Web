@@ -10,6 +10,7 @@ import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
 import ToolSeoSection from "@/app/components/ToolSeoSection";
 import ToolSeoSchema from "@/app/components/ToolSeoSchema";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 type SignatureMode = "type" | "draw" | "upload";
 
@@ -592,6 +593,16 @@ export default function SignPdf() {
             ? "fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 h-screen max-w-full" 
             : ""
         }`}>
+          {!isFullscreen && (
+            <BreadcrumbSchema
+              items={[
+                { name: "Home", url: "https://printsafely.app" },
+                { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+                { name: "Sign PDF", url: "https://printsafely.app/tools/sign-pdf" },
+              ]}
+            />
+          )}
+
           <div className="w-full space-y-2 text-left flex items-start justify-between">
             <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>

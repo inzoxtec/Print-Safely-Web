@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export default function PageNumbersPdf() {
   const { user } = useAuth();
@@ -204,6 +205,14 @@ export default function PageNumbersPdf() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "Add Page Numbers", url: "https://printsafely.app/tools/page-numbers" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-list-ordered-2 text-fuchsia-600 dark:text-fuchsia-500"></i> Add Page Numbers to PDF

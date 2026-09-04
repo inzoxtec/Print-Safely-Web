@@ -14,12 +14,12 @@ export default function Footer() {
             <img
                 src="/logo-dark.svg"
                 alt="SafelyPrint Logo"
-                className="h-7 w-auto block dark:hidden"
+                className="h-9 w-auto block dark:hidden"
             />
             <img
                 src="/logo-light.svg" 
                 alt="SafelyPrint Logo"
-                className="h-7 w-auto hidden dark:block"
+                className="h-9 w-auto hidden dark:block"
             />
         </Link>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
@@ -31,20 +31,20 @@ export default function Footer() {
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white mb-3">Tools</h4>
             <ul className="space-y-2 text-xs text-zinc-500 dark:text-zinc-400">
-              <li><Link href="/upload" className="hover:text-blue-600 transition">Secure Printer Link</Link></li>
-              <li><a href="#tools" className="hover:text-blue-600 transition">Image to PDF</a></li>
-              <li><a href="#tools" className="hover:text-blue-600 transition">Compress PDF</a></li>
-              <li><a href="#tools" className="hover:text-blue-600 transition">Merge PDF</a></li>
+              <li><Link href="/upload" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Secure Printer Link</Link></li>
+              <li><Link href="/tools/merge-pdf" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Merge PDF</Link></li>
+              <li><Link href="/tools/split-pdf" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Split PDF</Link></li>
+              <li><Link href="/tools/image-to-pdf" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Image to PDF</Link></li>
             </ul>
           </div>
 
           {/* Column 2 - Legal */}
           <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white mb-3">Privacy</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white mb-3">Privacy & Trust</h4>
             <ul className="space-y-2 text-xs text-zinc-500 dark:text-zinc-400">
-              <li><a href="#" className="hover:text-blue-600 transition">Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition">Terms of Service</a></li>
-              <li><a href="#" className="hover:text-blue-600 transition">Security Rules</a></li>
+              <li><Link href="/privacy" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Privacy Policy</Link></li>
+              <li><Link href="/terms" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Terms of Service</Link></li>
+              <li><Link href="/security" className="hover:text-blue-600 dark:hover:text-blue-400 transition">Security Rules</Link></li>
             </ul>
           </div>
 

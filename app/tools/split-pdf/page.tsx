@@ -1,4 +1,3 @@
-// app/tools/split-pdf/page.tsx
 import { Metadata } from "next";
 import SplitPdf from "./SplitPdf";
 

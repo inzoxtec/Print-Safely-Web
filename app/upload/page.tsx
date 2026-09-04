@@ -1,4 +1,3 @@
-// app/upload/page.tsx
 import { Metadata } from "next";
 import UploadClient from "./UploadClient";
 

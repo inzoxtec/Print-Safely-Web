@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 
 export default function DocxPdf() {
   const { user } = useAuth();
@@ -324,6 +325,14 @@ export default function DocxPdf() {
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
+          <BreadcrumbSchema
+            items={[
+              { name: "Home", url: "https://printsafely.app" },
+              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+              { name: "DOCX to PDF", url: "https://printsafely.app/tools/doc-to-pdf" },
+            ]}
+          />
+
           <div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-file-word-line text-blue-600 dark:text-blue-500"></i> Word to PDF Converter

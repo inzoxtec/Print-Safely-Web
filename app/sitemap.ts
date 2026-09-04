@@ -5,6 +5,10 @@ const BASE_URL = "https://printsafely.app";
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticRoutes = [
     "",
+    "/upload",
+    "/privacy",
+    "/terms",
+    "/security",
     "/pricing",
     "/login",
     "/signup",
@@ -33,8 +37,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const staticEntries = staticRoutes.map((route) => ({
     url: `${BASE_URL}${route}`,
     lastModified: new Date(),
-    changeFrequency: "monthly" as const,
-    priority: route === "" ? 1.0 : 0.8,
+    changeFrequency: route === "" || route === "/upload" ? ("weekly" as const) : ("monthly" as const),
+    priority: route === "" ? 1.0 : route === "/upload" ? 0.9 : 0.8,
   }));
 
   const toolEntries = tools.map((tool) => ({
