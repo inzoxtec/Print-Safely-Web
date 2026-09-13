@@ -190,7 +190,7 @@ export default function HomePageClient() {
             🛡️ 100% Secure & Client-Side Processing
           </span>
           <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-zinc-950 dark:text-white leading-[1.12]">
-            <span className="text-blue-600">Secure PDF Printing </span> &amp; Private Document Suite
+            <span className="text-blue-600">Secure Document Printing </span> &amp; Private Document Suite
           </h1>
           <p className="text-sm sm:text-base text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto leading-relaxed">
             Generate zero-download print links for printer shops to protect your IDs &amp; confidential documents. Merge, split, sign, lock, and convert PDFs 100% offline in your browser.

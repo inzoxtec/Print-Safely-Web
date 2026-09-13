@@ -13,13 +13,13 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export default function DocxPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  
+
   // Action states
   const [converting, setConverting] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isPremium, setIsPremium] = useState(false);
 
@@ -66,10 +66,14 @@ export default function DocxPdf() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const selectedFile = e.target.files[0];
-    
+
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
+    if (ext === "doc") {
+      alert("Legacy binary .doc files are not supported directly. Please open your document in Microsoft Word or Google Docs and save/export as a modern .docx file before converting.");
+      return;
+    }
     if (ext !== "docx") {
-      alert("Only modern Microsoft Word files (.docx format) are supported locally.");
+      alert("Only Microsoft Word document files (.docx format) are supported.");
       return;
     }
 
@@ -78,22 +82,44 @@ export default function DocxPdf() {
     setOutputBlob(null);
   };
 
+  // Resolve a blob: URL into a base64 data: URL so it survives being
+  // screenshotted by html2canvas (blob URLs can be revoked/unavailable by
+  // the time the canvas walk happens).
+  const blobToDataUrl = (blobUrl: string): Promise<string> =>
+    fetch(blobUrl)
+      .then((r) => r.blob())
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          })
+      );
+
   const handleConvert = async () => {
     if (!file) return;
     setConverting(true);
     setProgressMsg("Preparing rendering targets...");
 
-    // Create a standard block element in normal page flow (at the bottom of the body)
+    // Hidden off-screen render target. NOTE: no forced width here — the page
+    // is sized naturally from the document's own page dimensions below, so
+    // Letter-sized docs aren't squeezed into an assumed A4 frame.
     const hiddenContainer = document.createElement("div");
     hiddenContainer.id = "docx-render-container";
-    hiddenContainer.style.width = "794px"; // Standard A4 layout width in pixels
+    hiddenContainer.style.position = "fixed";
+    hiddenContainer.style.left = "0px";
+    hiddenContainer.style.top = "0px";
+    hiddenContainer.style.zIndex = "-9999";
+    hiddenContainer.style.pointerEvents = "none";
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
-    hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "0px"; // Zero padding to preserve docx native spacing
+    hiddenContainer.style.margin = "0";
+    hiddenContainer.style.padding = "0";
+    hiddenContainer.style.boxSizing = "border-box";
     document.body.appendChild(hiddenContainer);
 
-    // Save native String.fromCodePoint function reference to restore later
     const originalFromCodePoint = String.fromCodePoint;
 
     try {
@@ -115,6 +141,21 @@ export default function DocxPdf() {
         useBase64URL: true
       });
 
+      // Let layout/fonts settle before we measure or screenshot anything.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      // Read the ACTUAL page size docx-preview computed from the document's
+      // own <w:pgSz> (Letter, A4, Legal, custom...) instead of assuming A4.
+      // Forcing everything into 210mm was distorting/reflowing text for any
+      // doc that wasn't authored as A4 (e.g. the very common US Letter).
+      const firstPage = hiddenContainer.querySelector("section.docx") as HTMLElement | null;
+      const pageRectPx = firstPage
+        ? firstPage.getBoundingClientRect()
+        : ({ width: 794, height: 1123 } as DOMRect); // fallback: A4 @ 96dpi
+      const PX_TO_MM = 25.4 / 96;
+      const pageWidthMm = pageRectPx.width * PX_TO_MM;
+      const pageHeightMm = pageRectPx.height * PX_TO_MM;
+
       // Convert any rendered <canvas> elements (VML drawings/shapes) into visible <img> tags
       const canvases = Array.from(hiddenContainer.querySelectorAll("canvas"));
       canvases.forEach((canvas) => {
@@ -122,76 +163,112 @@ export default function DocxPdf() {
           const dataUrl = canvas.toDataURL("image/png");
           const img = document.createElement("img");
           img.src = dataUrl;
-          img.style.maxWidth = "100%";
-          img.style.display = "block";
-          img.style.margin = "10px auto";
+          if (canvas.style.width) img.style.width = canvas.style.width;
+          if (canvas.style.height) img.style.height = canvas.style.height;
+          img.style.display = canvas.style.display || "inline-block";
           canvas.parentNode?.replaceChild(img, canvas);
         } catch (e) {
           console.warn("Canvas conversion notice:", e);
         }
       });
 
-      // Inject CSS image rules to ensure all images & shapes are visible
+      // Break the PDF exactly at each rendered docx page instead of letting
+      // html2pdf pixel-slice one continuous screenshot into fixed-height
+      // chunks — that pixel slicing is what was cutting text/lines apart
+      // at the wrong spot between pages.
+      const pages = Array.from(hiddenContainer.querySelectorAll("section.docx")) as HTMLElement[];
+      pages.forEach((page, idx) => {
+        (page.style as any).breakBefore = idx === 0 ? "avoid" : "page";
+        (page.style as any).breakInside = "avoid";
+        page.style.margin = "0 auto";
+        page.style.boxShadow = "none";
+      });
+
       const styleElement = document.createElement("style");
       styleElement.innerHTML = `
-        #docx-render-container img,
-        #docx-render-container svg image {
-          max-width: 100% !important;
-          height: auto !important;
-          display: block !important;
-          margin: 10px auto !important;
-          visibility: visible !important;
-          opacity: 1 !important;
+        #docx-render-container {
+          font-family: inherit;
+          color: #000000 !important;
+          background: #ffffff !important;
         }
         #docx-render-container .docx-wrapper {
-          background: transparent !important;
+          background: #ffffff !important;
           padding: 0 !important;
           margin: 0 !important;
         }
         #docx-render-container section.docx {
+          box-sizing: border-box !important;
           box-shadow: none !important;
-          margin: 0 !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+        }
+        #docx-render-container img,
+        #docx-render-container svg image {
+          max-width: 100% !important;
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+        #docx-render-container table {
+          border-collapse: collapse !important;
+        }
+        #docx-render-container p {
+          word-break: break-word;
         }
       `;
       hiddenContainer.appendChild(styleElement);
 
-      // Extract all <img> tags and ensure complete loading
-      const images = Array.from(hiddenContainer.querySelectorAll("img"));
-      await Promise.all(
-        images.map(async (img) => {
+      // --- Resolve every image reference to an inline data: URL and wait
+      // for it to fully decode before screenshotting. This now covers BOTH
+      // normal <img> tags AND <image> elements inside inline <svg> nodes.
+      // docx-preview renders shapes/textboxes/certain pictures as SVG
+      // <image href="blob:..."> when `experimental: true` is set — the
+      // previous code only ever looked at <img>, which is exactly why some
+      // pictures were silently missing from the final PDF.
+      const imgElements = Array.from(hiddenContainer.querySelectorAll("img"));
+      const svgImageElements = Array.from(
+        hiddenContainer.querySelectorAll("svg image")
+      ) as unknown as SVGImageElement[];
+
+      await Promise.all([
+        ...imgElements.map(async (img) => {
           try {
-            img.style.maxWidth = "100%";
-            img.style.height = "auto";
-            img.style.display = "block";
             img.style.visibility = "visible";
             img.style.opacity = "1";
 
-            if (!img.complete) {
+            if (img.src && img.src.startsWith("blob:")) {
+              img.src = await blobToDataUrl(img.src);
+            }
+
+            if ((img as any).decode) {
+              await (img as any).decode().catch(() => {});
+            } else if (!img.complete) {
               await new Promise((resolve) => {
                 img.onload = resolve;
                 img.onerror = resolve;
-                setTimeout(resolve, 500);
-              });
-            }
-            if (img.src && img.src.startsWith("blob:")) {
-              const response = await fetch(img.src);
-              const blob = await response.blob();
-              await new Promise<void>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  if (typeof reader.result === "string") {
-                    img.src = reader.result;
-                  }
-                  resolve();
-                };
-                reader.readAsDataURL(blob);
+                setTimeout(resolve, 3000);
               });
             }
           } catch (e) {
             console.warn("Image processing notice:", e);
           }
-        })
-      );
+        }),
+        ...svgImageElements.map(async (svgImg) => {
+          try {
+            const href = svgImg.getAttribute("href") || svgImg.getAttribute("xlink:href");
+            if (href && href.startsWith("blob:")) {
+              const dataUrl = await blobToDataUrl(href);
+              svgImg.setAttribute("href", dataUrl);
+              svgImg.setAttributeNS("http://www.w3.org/1999/xlink", "href", dataUrl);
+            }
+            await new Promise((resolve) => {
+              svgImg.addEventListener("load", resolve, { once: true });
+              setTimeout(resolve, 3000);
+            });
+          } catch (e) {
+            console.warn("SVG image processing notice:", e);
+          }
+        }),
+      ]);
 
       setProgressMsg("Compiling final vector PDF file...");
 
@@ -207,7 +284,7 @@ export default function DocxPdf() {
       const originalConsoleError = console.error;
       console.error = function (...args: any[]) {
         if (args.length > 0 && typeof args[0] === "string" && args[0].includes("Error loading image")) {
-          return; // Ignore non-fatal html2canvas CSS/font image warning logs
+          return;
         }
         originalConsoleError.apply(console, args);
       };
@@ -218,19 +295,37 @@ export default function DocxPdf() {
         const pdfOptions = {
           margin: 0,
           filename: `${file.name.replace(/\.(docx|doc)$/i, "")}.pdf`,
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: { 
-            scale: 2, 
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: {
+            scale: 2,
             useCORS: true,
-            allowTaint: true,
+            // Everything is now an inline data: URL, so we don't need
+            // allowTaint — leaving it off means a genuinely bad image
+            // fails loudly instead of silently tainting the whole canvas
+            // (which used to make html2canvas quietly drop content).
+            allowTaint: false,
             logging: false,
-            imageTimeout: 0
-          }, 
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+            imageTimeout: 15000,
+            scrollX: 0,
+            scrollY: 0,
+            windowWidth: firstPage ? Math.ceil(pageRectPx.width) : undefined,
+          },
+          // Page size now matches the DOCUMENT's own dimensions (Letter, A4,
+          // etc.) rather than being hardcoded to A4 — this was the main
+          // source of the "text alignment" complaint for non-A4 docs.
+          jsPDF: {
+            unit: "mm",
+            format: [pageWidthMm, pageHeightMm],
+            orientation: pageWidthMm > pageHeightMm ? "landscape" : "portrait",
+          },
+          // Break pages at the CSS break-before rules we set on each
+          // section.docx element above, instead of arbitrary pixel slicing.
+          pagebreak: { mode: ["css"] },
         };
 
+        const elementToRender = hiddenContainer.querySelector(".docx-wrapper") || hiddenContainer;
         const pdfBlobOutput = await html2pdfEngine()
-          .from(hiddenContainer)
+          .from(elementToRender)
           .set(pdfOptions)
           .outputPdf("blob");
 
@@ -262,7 +357,7 @@ export default function DocxPdf() {
 
   const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
-    
+
     const name = `${file?.name?.replace(".docx", "")}.pdf`;
     const type = "application/pdf";
 
@@ -291,7 +386,11 @@ export default function DocxPdf() {
         putRequest.onerror = () => reject(putRequest.error);
       });
 
-      window.location.href = "/upload";
+      if (user) {
+        window.location.href = "/upload";
+      } else {
+        window.location.href = "/login?redirectTo=/upload&reason=forwarded_file";
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to queue file database write locally. Please download the file instead.");
@@ -305,7 +404,7 @@ export default function DocxPdf() {
       <Header />
 
       <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
-        
+
         {/* LEFT AD COLUMN */}
         {!isPremium && (
           <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
@@ -354,7 +453,7 @@ export default function DocxPdf() {
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".docx"
+                accept=".docx,.doc"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -380,7 +479,7 @@ export default function DocxPdf() {
 
           {file && !outputUrl && !converting && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl space-y-6 shadow-sm">
-              
+
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">

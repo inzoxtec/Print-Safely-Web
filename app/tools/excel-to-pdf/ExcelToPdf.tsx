@@ -232,7 +232,11 @@ export default function ExcelToPdf() {
         putRequest.onerror = () => reject(putRequest.error);
       });
 
-      window.location.href = "/upload";
+      if (user) {
+        window.location.href = "/upload";
+      } else {
+        window.location.href = "/login?redirectTo=/upload&reason=forwarded_file";
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to queue file database write locally. Please download the file instead.");
