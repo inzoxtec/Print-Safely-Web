@@ -98,10 +98,59 @@ export default function DocxPdf() {
           })
       );
 
+  // Helper to poll until docx-preview async image load callbacks finish setting src attributes
+  const waitForAllImagesToLoad = async (container: HTMLElement, timeoutMs = 8000): Promise<void> => {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      const imgElements = Array.from(container.querySelectorAll("img"));
+      const svgImageElements = Array.from(container.querySelectorAll("svg image")) as unknown as SVGImageElement[];
+      
+      const pendingImgs = imgElements.filter(
+        (img) => !img.src || img.src === "" || img.src === window.location.href
+      );
+      const pendingSvgImgs = svgImageElements.filter(
+        (svgImg) => !svgImg.getAttribute("href") && !svgImg.getAttribute("xlink:href")
+      );
+
+      if (pendingImgs.length === 0 && pendingSvgImgs.length === 0) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+
   const handleConvert = async () => {
     if (!file) return;
     setConverting(true);
-    setProgressMsg("Preparing rendering targets...");
+    setProgressMsg("Checking conversion options...");
+
+    // 1. Attempt High-Fidelity Server API Conversion
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      setProgressMsg("Processing document via High-Fidelity Vector Engine...");
+      const apiResponse = await fetch("/api/convert-doc", {
+        method: "POST",
+        body: formData,
+      });
+
+      const contentType = apiResponse.headers.get("content-type");
+      if (apiResponse.ok && contentType && contentType.includes("application/pdf")) {
+        const pdfBlob = await apiResponse.blob();
+        const url = URL.createObjectURL(pdfBlob);
+        setOutputBlob(pdfBlob);
+        setOutputUrl(url);
+        setConverting(false);
+        setProgressMsg("");
+        return;
+      }
+    } catch (apiErr) {
+      console.warn("Server API conversion route notice:", apiErr);
+    }
+
+    // 2. High-Precision Client-Side Fallback Engine
+    setProgressMsg("Preparing local client rendering targets...");
 
     // Hidden off-screen render target. NOTE: no forced width here — the page
     // is sized naturally from the document's own page dimensions below, so
@@ -141,6 +190,9 @@ export default function DocxPdf() {
         useBase64URL: true
       });
 
+      setProgressMsg("Loading document image assets...");
+      await waitForAllImagesToLoad(hiddenContainer);
+
       // Let layout/fonts settle before we measure or screenshot anything.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
@@ -155,6 +207,16 @@ export default function DocxPdf() {
       const PX_TO_MM = 25.4 / 96;
       const pageWidthMm = pageRectPx.width * PX_TO_MM;
       const pageHeightMm = pageRectPx.height * PX_TO_MM;
+
+      // Lock container & wrapper width to exact page width to eliminate extra screen margins
+      const measuredWidthPx = Math.ceil(pageRectPx.width);
+      hiddenContainer.style.width = `${measuredWidthPx}px`;
+      const wrapperEl = hiddenContainer.querySelector(".docx-wrapper") as HTMLElement | null;
+      if (wrapperEl) {
+        wrapperEl.style.width = `${measuredWidthPx}px`;
+        wrapperEl.style.margin = "0";
+        wrapperEl.style.padding = "0";
+      }
 
       // Convert any rendered <canvas> elements (VML drawings/shapes) into visible <img> tags
       const canvases = Array.from(hiddenContainer.querySelectorAll("canvas"));
@@ -172,15 +234,12 @@ export default function DocxPdf() {
         }
       });
 
-      // Break the PDF exactly at each rendered docx page instead of letting
-      // html2pdf pixel-slice one continuous screenshot into fixed-height
-      // chunks — that pixel slicing is what was cutting text/lines apart
-      // at the wrong spot between pages.
+      // Break the PDF exactly at each rendered docx page
       const pages = Array.from(hiddenContainer.querySelectorAll("section.docx")) as HTMLElement[];
       pages.forEach((page, idx) => {
         (page.style as any).breakBefore = idx === 0 ? "avoid" : "page";
         (page.style as any).breakInside = "avoid";
-        page.style.margin = "0 auto";
+        page.style.margin = "0";
         page.style.boxShadow = "none";
       });
 
@@ -190,17 +249,20 @@ export default function DocxPdf() {
           font-family: inherit;
           color: #000000 !important;
           background: #ffffff !important;
+          text-align: left !important;
         }
         #docx-render-container .docx-wrapper {
           background: #ffffff !important;
           padding: 0 !important;
           margin: 0 !important;
+          text-align: left !important;
         }
         #docx-render-container section.docx {
           box-sizing: border-box !important;
           box-shadow: none !important;
           background: #ffffff !important;
           color: #000000 !important;
+          margin: 0 !important;
         }
         #docx-render-container img,
         #docx-render-container svg image {
@@ -299,16 +361,15 @@ export default function DocxPdf() {
           html2canvas: {
             scale: 2,
             useCORS: true,
-            // Everything is now an inline data: URL, so we don't need
-            // allowTaint — leaving it off means a genuinely bad image
-            // fails loudly instead of silently tainting the whole canvas
-            // (which used to make html2canvas quietly drop content).
             allowTaint: false,
             logging: false,
             imageTimeout: 15000,
             scrollX: 0,
             scrollY: 0,
-            windowWidth: firstPage ? Math.ceil(pageRectPx.width) : undefined,
+            x: 0,
+            y: 0,
+            width: measuredWidthPx,
+            windowWidth: measuredWidthPx,
           },
           // Page size now matches the DOCUMENT's own dimensions (Letter, A4,
           // etc.) rather than being hardcoded to A4 — this was the main
