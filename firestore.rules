@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Users collection: Allow authenticated users to read and update user profiles
+    match /users/{userId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 2. Shops collection: Public read access for directory search, write access for authenticated shop owners
+    match /shops/{shopId} {
+      allow read: if true;
+      allow create, update: if request.auth != null;
+      allow delete: if request.auth != null && (resource == null || request.auth.uid == resource.data.ownerId);
+    }
+
+    // 3. Documents collection: Self-destructing secure document share rules
+    match /documents/{docId} {
+      // Allow reading metadata to anyone
+      allow read: if true;
+                  
+      // Allow logged-in users to create print links
+      allow create: if request.auth != null;
+                    
+      // Allow print shop to update print count/status
+      allow update: if true;
+                    
+      // Allow print shop or owner to delete (so it can self-destruct!)
+      allow delete: if true;
+                    
+      match /chunks/{chunkId} {
+        // Allow print shop to read and delete chunks, and owner to upload them
+        allow read: if true;
+        allow create: if request.auth != null;
+        allow delete: if true;
+      }
+    }
+  }
+}

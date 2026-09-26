@@ -138,12 +138,19 @@ export default function Header() {
         </Link>
         </div>
         <div>
-                      <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1">
             <Link 
               href="/upload" 
               className="text-sm font-semibold px-3 py-2 rounded-lg text-zinc-600 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400 transition"
             >
               Secure Share
+            </Link>
+            <Link 
+              href="/shops" 
+              className="text-sm font-semibold px-3 py-2 rounded-lg text-zinc-600 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400 transition flex items-center gap-1.5"
+            >
+              <i className="ri-store-2-line text-blue-600 dark:text-blue-400"></i>
+              <span>Find Print Shops</span>
             </Link>
 
             {categories.map((category) => (
@@ -244,6 +251,14 @@ export default function Header() {
                     className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
                   >
                     <i className="ri-dashboard-line"></i> Dashboard
+                  </Link>
+
+                  <Link
+                    href="/shop/dashboard"
+                    onClick={() => setActiveDropdown(null)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
+                  >
+                    <i className="ri-store-2-line"></i> Shop Dashboard
                   </Link>
 
                   <button
