@@ -300,7 +300,11 @@ export default function SplitPdf() {
         putRequest.onerror = () => reject(putRequest.error);
       });
 
-      window.location.href = "/upload";
+      if (user) {
+        window.location.href = "/upload";
+      } else {
+        window.location.href = "/login?redirectTo=/upload&reason=forwarded_file";
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to queue file database write locally. Please download the file instead.");
@@ -548,12 +552,14 @@ export default function SplitPdf() {
                 >
                   <i className="ri-download-2-line"></i> Download {outputType === "pdf" ? "PDF" : "ZIP File"}
                 </a>
-                <button
-                  onClick={handleForwardToSecureShare}
-                  className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <i className="ri-shield-keyhole-line"></i> 🔒 Secure Share & Print
-                </button>
+                {outputType === "pdf" && (
+                  <button
+                    onClick={handleForwardToSecureShare}
+                    className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <i className="ri-shield-keyhole-line"></i> 🔒 Secure Share & Print
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => {

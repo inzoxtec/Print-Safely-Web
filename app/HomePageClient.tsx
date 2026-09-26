@@ -41,6 +41,33 @@ export default function HomePageClient() {
       icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
     },
     {
+      name: "Rotate PDF",
+      href: "/tools/rotate-pdf",
+      desc: "Rotate pages 90°, 180°, or 270° clockwise or counter-clockwise.",
+      category: "Organize",
+      badge: "New",
+      color: "bg-cyan-500/10 text-cyan-600",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    },
+    {
+      name: "Compress PDF",
+      href: "/tools/compress-pdf",
+      desc: "Reduce PDF file size for fast web uploads and email attachments.",
+      category: "Organize",
+      badge: "New",
+      color: "bg-blue-600/10 text-blue-600",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+    },
+    {
+      name: "Crop PDF",
+      href: "/tools/crop-pdf",
+      desc: "Trim extra white margins off PDF pages before printing.",
+      category: "Organize",
+      badge: "New",
+      color: "bg-purple-500/10 text-purple-600",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21v-4m0 0V5a2 2 0 012-2h10a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2z" />
+    },
+    {
       name: "Reorder Pages",
       href: "/tools/reorder-pdf",
       desc: "Drag-and-drop page thumbnails to sort and rearrange pages visually.",
@@ -73,6 +100,24 @@ export default function HomePageClient() {
       category: "Convert",
       color: "bg-amber-500/10 text-amber-500",
       icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    },
+    {
+      name: "Grayscale PDF",
+      href: "/tools/grayscale-pdf",
+      desc: "Convert colorful PDFs to black & white grayscale to save printer ink.",
+      category: "Convert",
+      badge: "New",
+      color: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-300",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+    },
+    {
+      name: "Extract Images",
+      href: "/tools/extract-images",
+      desc: "Extract embedded photos and graphics into a downloadable ZIP file.",
+      category: "Convert",
+      badge: "New",
+      color: "bg-emerald-500/10 text-emerald-600",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
     },
     {
       name: "Docx to PDF",
@@ -117,6 +162,15 @@ export default function HomePageClient() {
     },
 
     // Security Category
+    {
+      name: "Redact PDF",
+      href: "/tools/redact-pdf",
+      desc: "Blackout personal text, numbers, and sensitive data in your PDF.",
+      category: "Security",
+      badge: "New",
+      color: "bg-zinc-900/10 text-zinc-900 dark:text-zinc-100",
+      icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+    },
     {
       name: "Protect PDF",
       href: "/tools/protect",
@@ -190,7 +244,7 @@ export default function HomePageClient() {
             🛡️ 100% Secure & Client-Side Processing
           </span>
           <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-zinc-950 dark:text-white leading-[1.12]">
-            <span className="text-blue-600">Secure PDF Printing </span> &amp; Private Document Suite
+            <span className="text-blue-600">Secure Documents Printing </span> Private Document Suite
           </h1>
           <p className="text-sm sm:text-base text-zinc-500 dark:text-zinc-400 max-w-xl mx-auto leading-relaxed">
             Generate zero-download print links for printer shops to protect your IDs &amp; confidential documents. Merge, split, sign, lock, and convert PDFs 100% offline in your browser.

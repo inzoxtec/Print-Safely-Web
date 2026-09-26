@@ -85,11 +85,13 @@ export default function UploadClient() {
 
         if (data && data.blob) {
           const forwardedFile = new File([data.blob], data.name, { type: data.type });
-          setFiles([forwardedFile]);
+          setFiles((prev) => (prev.length === 0 ? [forwardedFile] : prev));
 
-          // Clear database record so it doesn't reload on page refresh
-          const deleteTransaction = dbInstance.transaction("forwarded_files", "readwrite");
-          deleteTransaction.objectStore("forwarded_files").delete("active_forward");
+          // Clear database record only once user is authenticated so it persists across login redirects!
+          if (user) {
+            const deleteTransaction = dbInstance.transaction("forwarded_files", "readwrite");
+            deleteTransaction.objectStore("forwarded_files").delete("active_forward");
+          }
         }
       } catch (err) {
         console.warn("IndexedDB recovery failed:", err);
@@ -97,7 +99,7 @@ export default function UploadClient() {
     };
 
     retrieveForwardedFile();
-  }, []);
+  }, [user]);
 
   // Configuration States
   const [expirationHours, setExpirationHours] = useState("24");
@@ -254,7 +256,11 @@ export default function UploadClient() {
   // Process & Chunked Upload to Firestore Logic
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (files.length === 0 || !user) return;
+    if (files.length === 0) return;
+    if (!user) {
+      router.push("/login?redirectTo=/upload&reason=forwarded_file");
+      return;
+    }
 
     setError("");
     setUploading(true);
@@ -741,9 +747,16 @@ export default function UploadClient() {
               <button
                 type="submit"
                 disabled={files.length === 0}
-                className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 disabled:scale-100 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-500/20 dark:shadow-none hover:shadow-blue-500/30 transition-all cursor-pointer"
+                className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50 disabled:scale-100 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-500/20 dark:shadow-none hover:shadow-blue-500/30 transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                Generate Print Link & QR Code
+                {!user ? (
+                  <>
+                    <i className="ri-lock-2-line"></i>
+                    Sign in to Generate Print Link & QR Code
+                  </>
+                ) : (
+                  "Generate Print Link & QR Code"
+                )}
               </button>
             )}
           </form>

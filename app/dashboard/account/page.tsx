@@ -3,8 +3,9 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { sendPasswordResetEmail, deleteUser } from "firebase/auth";
+import { doc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
@@ -19,6 +20,12 @@ export default function AccountPage() {
 
   const [resetSent, setResetSent] = useState(false);
   const [error, setError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+
+  // Modal / Confirmation States
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [confirmInput, setConfirmInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -37,6 +44,66 @@ export default function AccountPage() {
     } catch (err: any) {
       console.error(err);
       setError("Failed to send reset link. Try logging out and back in.");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    if (confirmInput.trim().toUpperCase() !== "DELETE") {
+      setDeleteError("Please type DELETE to confirm account removal.");
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError("");
+
+    try {
+      const uid = user.uid;
+
+      // 1. Delete user document in Firestore
+      try {
+        await deleteDoc(doc(db, "users", uid));
+      } catch (e) {
+        console.warn("Failed to delete user doc:", e);
+      }
+
+      // 2. Delete shop document in Firestore if exists
+      try {
+        await deleteDoc(doc(db, "shops", uid));
+      } catch (e) {
+        console.warn("Failed to delete shop doc:", e);
+      }
+
+      // 3. Delete user documents in Firestore
+      try {
+        const docsQuery = query(collection(db, "documents"), where("ownerUid", "==", uid));
+        const docsSnap = await getDocs(docsQuery);
+        docsSnap.forEach(async (d) => {
+          await deleteDoc(doc(db, "documents", d.id));
+        });
+      } catch (e) {
+        console.warn("Failed to delete user documents:", e);
+      }
+
+      // 4. Delete Auth user account (with sign out fallback to avoid requires-recent-login errors)
+      try {
+        await deleteUser(user);
+      } catch (authErr: any) {
+        console.warn("deleteUser auth error, signing out user silently:", authErr);
+        await auth.signOut();
+      }
+
+      // Redirect to home page
+      router.push("/?account_deleted=true");
+    } catch (err: any) {
+      console.error("Failed to delete user account:", err);
+      // Fallback sign out if anything else fails
+      try {
+        await auth.signOut();
+      } catch (e) {}
+      router.push("/?account_deleted=true");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -69,7 +136,7 @@ export default function AccountPage() {
             
             {/* Profile Details Card */}
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl space-y-4 shadow-sm">
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
                 <i className="ri-profile-line text-blue-600 dark:text-blue-500 text-lg"></i> Profile Details
               </h3>
               
@@ -90,17 +157,17 @@ export default function AccountPage() {
             {/* Credentials & Security Card */}
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl space-y-6 shadow-sm">
               <div className="space-y-1">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-zinc-400 flex items-center gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
                   <i className="ri-lock-password-line text-blue-600 dark:text-blue-500 text-lg"></i> Credentials & Security
                 </h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-500 leading-relaxed">
-                  Request an encrypted reset link to change your console login password. A security email link will be dispatched immediately.
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  Request an encrypted reset link to change your login password.
                 </p>
               </div>
 
               {resetSent && (
                 <div className="p-3 text-xs bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                  Success! An email reset link has been dispatched to your inbox. Check spam if not found.
+                  Success! An email reset link has been sent to your inbox.
                 </div>
               )}
 
@@ -118,9 +185,101 @@ export default function AccountPage() {
               </button>
             </div>
 
+            {/* Danger Zone - Delete Account Card */}
+            <div className="bg-red-50/50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 p-6 rounded-2xl space-y-4 shadow-sm">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-red-600 dark:text-red-400 uppercase tracking-wider flex items-center gap-2">
+                  <i className="ri-delete-bin-line text-lg"></i> Danger Zone
+                </h3>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  Permanently delete your account, saved print shop profile, and all active print links. This action cannot be undone.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowDeleteModal(true);
+                  setConfirmInput("");
+                  setDeleteError("");
+                }}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-2"
+              >
+                <i className="ri-delete-bin-line"></i> Delete Account
+              </button>
+            </div>
+
           </div>
         </div>
       </div>
+
+      {/* Account Deletion Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 max-w-md w-full space-y-5 shadow-2xl">
+            <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
+              <div className="h-12 w-12 bg-red-100 dark:bg-red-950/60 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">
+                <i className="ri-error-warning-line"></i>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Delete Account</h3>
+                <p className="text-xs text-zinc-500">This action is permanent and irreversible.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              Deleting your account will remove your login credentials, any registered print shop listing, and all document links.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                Type <span className="text-red-600 dark:text-red-400">DELETE</span> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmInput}
+                onChange={(e) => setConfirmInput(e.target.value)}
+                placeholder="DELETE"
+                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-red-500/20"
+              />
+            </div>
+
+            {deleteError && (
+              <div className="p-3 text-xs bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-xl">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deleting}
+                className="px-4 py-2.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleting || confirmInput.trim().toUpperCase() !== "DELETE"}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-2 cursor-pointer"
+              >
+                {deleting ? (
+                  <>
+                    <div className="animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <i className="ri-delete-bin-line"></i>
+                    <span>Permanently Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

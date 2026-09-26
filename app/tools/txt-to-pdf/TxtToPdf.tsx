@@ -93,7 +93,7 @@ export default function TxtToPdf() {
           html += "</pre></div>";
           inCode = false;
         } else {
-          html += "<div style='background:#f4f4f5; padding:10px; border-radius:8px; font-family:monospace; margin-bottom:12px; border:1px solid #e4e4e7;'><pre style='margin:0; white-space:pre-wrap;'>";
+          html += "<div style='background:#f4f4f5; padding:10px; border-radius:8px; font-family:monospace; margin-bottom:12px; border:1px solid #e4e4e7; page-break-inside:avoid; break-inside:avoid;'><pre style='margin:0; white-space:pre-wrap; font-size:13px;'>";
           inCode = true;
         }
         continue;
@@ -106,17 +106,17 @@ export default function TxtToPdf() {
       // Headers
       if (line.startsWith("# ")) {
         if (inList) { html += "</ul>"; inList = false; }
-        html += `<h1 style="font-family:sans-serif; font-size:20px; font-weight:bold; margin-top:20px; margin-bottom:10px; border-bottom:1px solid #e4e4e7; padding-bottom:5px; color:#111827;">${line.substring(2)}</h1>`;
+        html += `<h1 style="font-family:sans-serif; font-size:22px; font-weight:bold; margin-top:20px; margin-bottom:12px; border-bottom:1px solid #e4e4e7; padding-bottom:5px; color:#111827; page-break-inside:avoid; break-inside:avoid;">${line.substring(2)}</h1>`;
         continue;
       }
       if (line.startsWith("## ")) {
         if (inList) { html += "</ul>"; inList = false; }
-        html += `<h2 style="font-family:sans-serif; font-size:16px; font-weight:bold; margin-top:16px; margin-bottom:8px; color:#1f2937;">${line.substring(3)}</h2>`;
+        html += `<h2 style="font-family:sans-serif; font-size:18px; font-weight:bold; margin-top:16px; margin-bottom:10px; color:#1f2937; page-break-inside:avoid; break-inside:avoid;">${line.substring(3)}</h2>`;
         continue;
       }
       if (line.startsWith("### ")) {
         if (inList) { html += "</ul>"; inList = false; }
-        html += `<h3 style="font-family:sans-serif; font-size:13px; font-weight:bold; margin-top:12px; margin-bottom:6px; color:#374151;">${line.substring(4)}</h3>`;
+        html += `<h3 style="font-family:sans-serif; font-size:15px; font-weight:bold; margin-top:14px; margin-bottom:8px; color:#374151; page-break-inside:avoid; break-inside:avoid;">${line.substring(4)}</h3>`;
         continue;
       }
 
@@ -129,7 +129,7 @@ export default function TxtToPdf() {
         const liContent = line.trim().substring(2)
           .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
           .replace(/\*(.*?)\*/g, "<em>$1</em>");
-        html += `<li style='margin-bottom:4px; font-size:11px; font-family:sans-serif; color:#374151;'>${liContent}</li>`;
+        html += `<li style='margin-bottom:6px; font-size:14px; line-height:1.6; font-family:sans-serif; color:#374151; page-break-inside:avoid; break-inside:avoid;'>${liContent}</li>`;
         continue;
       } else if (inList && line.trim() === "") {
         html += "</ul>";
@@ -142,8 +142,8 @@ export default function TxtToPdf() {
         let formattedLine = line
           .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
           .replace(/\*(.*?)\*/g, "<em>$1</em>")
-          .replace(/`(.*?)`/g, "<code style='background:#f4f4f5; padding:2px 4px; border-radius:4px; font-family:monospace; font-size:10px;'>$1</code>");
-        html += `<p style="font-family:sans-serif; font-size:11px; line-height:1.6; margin-bottom:10px; color:#374151;">${formattedLine}</p>`;
+          .replace(/`(.*?)`/g, "<code style='background:#f4f4f5; padding:2px 4px; border-radius:4px; font-family:monospace; font-size:13px;'>$1</code>");
+        html += `<p style="font-family:sans-serif; font-size:14px; line-height:1.6; margin-bottom:12px; color:#374151; page-break-inside:avoid; break-inside:avoid;">${formattedLine}</p>`;
       } else {
         html += "<div style='height:8px;'></div>";
       }
@@ -152,6 +152,63 @@ export default function TxtToPdf() {
     if (inCode) html += "</pre></div>";
 
     return html;
+  };
+
+  // Helper to split compiled HTML elements into discrete, un-overflowed A4 page containers
+  const buildPaginatedPages = (compiledHtml: string, isLandscape: boolean): HTMLElement[] => {
+    const pageWidthPx = isLandscape ? 1060 : 794;
+    const pageHeightPx = isLandscape ? 750 : 1060;
+
+    const stageContainer = document.createElement("div");
+    stageContainer.style.position = "fixed";
+    stageContainer.style.left = "-9999px";
+    stageContainer.style.top = "0px";
+    stageContainer.style.width = `${pageWidthPx}px`;
+    document.body.appendChild(stageContainer);
+
+    const tempWrapper = document.createElement("div");
+    tempWrapper.innerHTML = compiledHtml;
+    const elements = Array.from(tempWrapper.children) as HTMLElement[];
+
+    const pages: HTMLElement[] = [];
+
+    const createPageNode = () => {
+      const page = document.createElement("div");
+      page.className = "txt-pdf-page";
+      page.style.width = `${pageWidthPx}px`;
+      page.style.height = `${pageHeightPx}px`;
+      page.style.padding = "40px 45px";
+      page.style.boxSizing = "border-box";
+      page.style.background = "#FFFFFF";
+      page.style.color = "#1f2937";
+      page.style.overflow = "hidden";
+      page.style.fontFamily = "sans-serif";
+      page.style.lineHeight = "1.6";
+      page.style.fontSize = "14px";
+      stageContainer.appendChild(page);
+      return page;
+    };
+
+    let currentPage = createPageNode();
+    pages.push(currentPage);
+
+    for (const el of elements) {
+      const clone = el.cloneNode(true) as HTMLElement;
+      currentPage.appendChild(clone);
+
+      if (currentPage.scrollHeight > pageHeightPx) {
+        // Remove from current page because it overflows page bottom
+        currentPage.removeChild(clone);
+
+        // Create new page and append element
+        currentPage = createPageNode();
+        pages.push(currentPage);
+        currentPage.appendChild(clone);
+      }
+    }
+
+    document.body.removeChild(stageContainer);
+    return pages;
   };
 
   const handleConvert = async () => {
@@ -166,7 +223,7 @@ export default function TxtToPdf() {
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
     hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "40px";
+    hiddenContainer.style.padding = "0px";
     document.body.appendChild(hiddenContainer);
 
     // Save native String.fromCodePoint reference
@@ -178,16 +235,22 @@ export default function TxtToPdf() {
       setProgressMsg("Reading document stream...");
       const textContent = await file.text();
 
-      setProgressMsg("Formatting text layout...");
+      setProgressMsg("Formatting paginated text layout...");
       const compiledHtml = parseMarkdownToHtml(textContent);
+      const pageNodes = buildPaginatedPages(compiledHtml, orientation === "landscape");
 
-      hiddenContainer.innerHTML = `
-        <div style="font-family: sans-serif; line-height: 1.6; color: #1f2937;">
-          ${compiledHtml}
-        </div>
-      `;
+      hiddenContainer.innerHTML = "";
+      pageNodes.forEach((pageEl, idx) => {
+        if (idx > 0) {
+          const breakDiv = document.createElement("div");
+          breakDiv.style.pageBreakBefore = "always";
+          breakDiv.style.breakBefore = "page";
+          hiddenContainer.appendChild(breakDiv);
+        }
+        hiddenContainer.appendChild(pageEl);
+      });
 
-      setProgressMsg("Compiling final vector PDF file...");
+      setProgressMsg("Compiling final vector PDF pages...");
 
       // 1. Override String.fromCodePoint to catch html2canvas glyph RangeError
       String.fromCodePoint = function (...codePoints: number[]) {
@@ -198,14 +261,15 @@ export default function TxtToPdf() {
         }
       };
 
-      // 2. Generate PDF via html2pdf using outputPdf("blob")
+      // 2. Generate PDF via html2pdf using discrete page nodes
       const html2pdfEngine = (window as any).html2pdf;
       const pdfOptions = {
-        margin: 15,
+        margin: [0, 0, 0, 0], // Page containers already include exact padding
         filename: `${file.name.split(".")[0]}.pdf`,
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true }, 
-        jsPDF: { unit: "mm", format: "a4", orientation: orientation }
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#FFFFFF" },
+        jsPDF: { unit: "mm", format: "a4", orientation: orientation },
+        pagebreak: { mode: ["css", "legacy"] }
       };
 
       const pdfBlobOutput = await html2pdfEngine()
@@ -266,7 +330,11 @@ export default function TxtToPdf() {
         putRequest.onerror = () => reject(putRequest.error);
       });
 
-      window.location.href = "/upload";
+      if (user) {
+        window.location.href = "/upload";
+      } else {
+        window.location.href = "/login?redirectTo=/upload&reason=forwarded_file";
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to queue file database write locally. Please download the file instead.");

@@ -13,13 +13,13 @@ import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
 export default function DocxPdf() {
   const { user } = useAuth();
   const [file, setFile] = useState<File | null>(null);
-  
+
   // Action states
   const [converting, setConverting] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
-  
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isPremium, setIsPremium] = useState(false);
 
@@ -66,10 +66,14 @@ export default function DocxPdf() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const selectedFile = e.target.files[0];
-    
+
     const ext = selectedFile.name.split(".").pop()?.toLowerCase();
+    if (ext === "doc") {
+      alert("Legacy binary .doc files are not supported directly. Please open your document in Microsoft Word or Google Docs and save/export as a modern .docx file before converting.");
+      return;
+    }
     if (ext !== "docx") {
-      alert("Only modern Microsoft Word files (.docx format) are supported locally.");
+      alert("Only Microsoft Word document files (.docx format) are supported.");
       return;
     }
 
@@ -78,22 +82,402 @@ export default function DocxPdf() {
     setOutputBlob(null);
   };
 
+  // Resolve a blob: URL into a base64 data: URL so it survives being
+  // screenshotted by html2canvas (blob URLs can be revoked/unavailable by
+  // the time the canvas walk happens).
+  const blobToDataUrl = (blobUrl: string): Promise<string> =>
+    fetch(blobUrl)
+      .then((r) => r.blob())
+      .then(
+        (blob) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          })
+      );
+
+  // Helper to poll until docx-preview async image load callbacks finish setting src attributes
+  const waitForAllImagesToLoad = async (container: HTMLElement, timeoutMs = 8000): Promise<void> => {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      const imgElements = Array.from(container.querySelectorAll("img"));
+      const svgImageElements = Array.from(container.querySelectorAll("svg image")) as unknown as SVGImageElement[];
+      
+      const pendingImgs = imgElements.filter(
+        (img) => !img.src || img.src === "" || img.src === window.location.href
+      );
+      const pendingSvgImgs = svgImageElements.filter(
+        (svgImg) => !svgImg.getAttribute("href") && !svgImg.getAttribute("xlink:href")
+      );
+
+      if (pendingImgs.length === 0 && pendingSvgImgs.length === 0) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+
+  // Helper to convert inline <svg> shape/chart elements into high-resolution <img> tags for html2canvas rendering
+  const convertSvgNodesToImages = async (container: HTMLElement): Promise<void> => {
+    const svgElements = Array.from(container.querySelectorAll("svg"));
+
+    for (const svg of svgElements) {
+      try {
+        // 1. Resolve all <image> href/xlink:href blob: URLs INSIDE the SVG to base64 Data URLs FIRST!
+        const svgImages = Array.from(svg.querySelectorAll("image"));
+        for (const svgImg of svgImages) {
+          const href = svgImg.getAttribute("href") || svgImg.getAttribute("xlink:href");
+          if (href && href.startsWith("blob:")) {
+            try {
+              const base64 = await blobToDataUrl(href);
+              svgImg.setAttribute("href", base64);
+              svgImg.setAttributeNS("http://www.w3.org/1999/xlink", "href", base64);
+            } catch (e) {
+              console.warn("Failed to convert inner SVG blob image:", e);
+            }
+          }
+          svgImg.style.visibility = "visible";
+          svgImg.style.opacity = "1";
+        }
+
+        // 2. Measure dimensions accurately
+        let rect = svg.getBoundingClientRect();
+        let width = Math.ceil(rect.width) || parseInt(svg.getAttribute("width") || "0") || 400;
+        let height = Math.ceil(rect.height) || parseInt(svg.getAttribute("height") || "0") || 300;
+
+        if (width <= 0 || height <= 0) {
+          try {
+            const bbox = (svg as any).getBBox?.();
+            if (bbox && bbox.width > 0 && bbox.height > 0) {
+              width = Math.ceil(bbox.x + bbox.width);
+              height = Math.ceil(bbox.y + bbox.height);
+            }
+          } catch (e) {}
+        }
+
+        if (width <= 0) width = 450;
+        if (height <= 0) height = 300;
+
+        svg.setAttribute("width", `${width}`);
+        svg.setAttribute("height", `${height}`);
+        if (!svg.getAttribute("viewBox")) {
+          svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+        }
+
+        // Check if SVG is purely a wrapper for a single standalone picture image (no vector chart elements)
+        const hasVectorNodes = svg.querySelectorAll("path, rect, circle, line, polygon, polyline, text, g").length > 2;
+
+        if (!hasVectorNodes && svgImages.length === 1 && width > 0 && height > 0) {
+          const singleImg = svgImages[0];
+          const href = singleImg.getAttribute("href") || singleImg.getAttribute("xlink:href");
+          if (href && href.startsWith("data:image/")) {
+            const img = document.createElement("img");
+            img.src = href;
+            img.style.width = `${width}px`;
+            img.style.height = `${height}px`;
+            img.style.maxWidth = "100%";
+            img.style.display = svg.style.display || "inline-block";
+            img.style.verticalAlign = "middle";
+            img.style.visibility = "visible";
+            img.style.opacity = "1";
+            svg.parentNode?.replaceChild(img, svg);
+            continue;
+          }
+        }
+
+        // 3. Render vector SVG (charts, diagrams, shape drawings) onto a high-res 2x canvas via Blob URL
+        const serializer = new XMLSerializer();
+        let svgString = serializer.serializeToString(svg);
+        if (!svgString.includes('xmlns="http://www.w3.org/2000/svg"')) {
+          svgString = svgString.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+        }
+
+        const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+        const svgUrl = URL.createObjectURL(svgBlob);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width * 2;
+        canvas.height = height * 2;
+        const ctx = canvas.getContext("2d");
+
+        if (ctx) {
+          ctx.scale(2, 2);
+          const tempImg = new Image();
+          tempImg.crossOrigin = "anonymous";
+
+          await new Promise<void>((resolve) => {
+            tempImg.onload = () => {
+              try {
+                ctx.drawImage(tempImg, 0, 0, width, height);
+              } catch (e) {}
+              URL.revokeObjectURL(svgUrl);
+              resolve();
+            };
+            tempImg.onerror = () => {
+              URL.revokeObjectURL(svgUrl);
+              resolve();
+            };
+            tempImg.src = svgUrl;
+          });
+
+          const pngDataUrl = canvas.toDataURL("image/png");
+
+          // Only replace with image if canvas successfully drew content (not transparent blank)
+          if (pngDataUrl && pngDataUrl.length > 500) {
+            const img = document.createElement("img");
+            img.src = pngDataUrl;
+            img.style.width = `${width}px`;
+            img.style.height = `${height}px`;
+            img.style.maxWidth = "100%";
+            img.style.display = svg.style.display || "inline-block";
+            img.style.verticalAlign = "middle";
+            img.style.visibility = "visible";
+            img.style.opacity = "1";
+
+            svg.parentNode?.replaceChild(img, svg);
+          }
+        }
+      } catch (err) {
+        console.warn("SVG shape conversion notice:", err);
+      }
+    }
+  };
+
+  // Helper to extract shapes, drawings, textboxes, and embedded media graphics directly from OpenXML zip package
+  const fixEmptyShapeContainers = async (container: HTMLElement, arrayBuffer: ArrayBuffer): Promise<void> => {
+    try {
+      const JSZip = (window as any).JSZip;
+      if (!JSZip) return;
+
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      const docXmlFile = zip.file("word/document.xml");
+      if (!docXmlFile) return;
+
+      const docXmlText = await docXmlFile.async("string");
+      const xmlDoc = new DOMParser().parseFromString(docXmlText, "text/xml");
+
+      // Build relationship ID to file target map
+      const relsFile = zip.file("word/_rels/document.xml.rels");
+      const relsMap: Record<string, string> = {};
+      if (relsFile) {
+        const relsText = await relsFile.async("string");
+        const relsDoc = new DOMParser().parseFromString(relsText, "text/xml");
+        const relElements = Array.from(relsDoc.querySelectorAll("Relationship"));
+        relElements.forEach((rel) => {
+          const id = rel.getAttribute("Id");
+          const target = rel.getAttribute("Target");
+          if (id && target) relsMap[id] = target.replace(/^word\//, "");
+        });
+      }
+
+      // Find top-level shape/drawing XML elements in exact document order
+      const shapeXmlNodes = Array.from(
+        xmlDoc.querySelectorAll("drawing, pict, shape, wsp, txbxContent")
+      ).filter((node) => {
+        let parent = node.parentNode;
+        while (parent) {
+          const tag = parent.nodeName.toLowerCase();
+          if (tag === "drawing" || tag === "pict" || tag === "shape" || tag === "wsp" || tag === "txbxcontent") {
+            return false;
+          }
+          parent = parent.parentNode;
+        }
+        return true;
+      });
+
+      const shapeInfos: Array<{ text: string; bg: string; border: string; imgDataUrl?: string }> = [];
+
+      for (const node of shapeXmlNodes) {
+        const textNodes = Array.from(node.querySelectorAll("t"));
+        const text = textNodes.map((n) => n.textContent).filter(Boolean).join(" ");
+
+        let bg = "";
+        let border = "";
+        let imgDataUrl: string | undefined = undefined;
+
+        // Check for solid fill
+        const solidFill = node.querySelector("solidFill srgbClr");
+        if (solidFill) {
+          const val = solidFill.getAttribute("val");
+          if (val) bg = `#${val}`;
+        }
+
+        const fillcolor = node.getAttribute("fillcolor");
+        if (fillcolor) {
+          bg = fillcolor.startsWith("#") ? fillcolor : `#${fillcolor}`;
+        }
+
+        // Check for border / line stroke
+        const lnClr = node.querySelector("ln solidFill srgbClr");
+        if (lnClr) {
+          const val = lnClr.getAttribute("val");
+          if (val) border = `1px solid #${val}`;
+        }
+
+        // Check for relationship image ID (blip, imagedata, fill)
+        const blip = node.querySelector("blip, imagedata, fill");
+        const embedId =
+          blip?.getAttribute("r:embed") ||
+          blip?.getAttribute("r:id") ||
+          blip?.getAttribute("id") ||
+          blip?.getAttribute("r:href");
+
+        if (embedId && relsMap[embedId]) {
+          const relTarget = relsMap[embedId];
+          const mediaPath = relTarget.startsWith("media/")
+            ? `word/${relTarget}`
+            : `word/${relTarget.replace(/^\//, "")}`;
+          const mediaFile = zip.file(mediaPath) || zip.file(relTarget);
+          if (mediaFile) {
+            const base64 = await mediaFile.async("base64");
+            const ext = mediaPath.split(".").pop()?.toLowerCase() || "png";
+            const mime =
+              ext === "jpg" || ext === "jpeg"
+                ? "image/jpeg"
+                : ext === "svg"
+                ? "image/svg+xml"
+                : "image/png";
+            imgDataUrl = `data:${mime};base64,${base64}`;
+          }
+        }
+
+        shapeInfos.push({ text, bg, border, imgDataUrl });
+      }
+
+      // Find top-level drawing/shape DOM elements rendered by docx-preview
+      const allDrawingEls = Array.from(
+        container.querySelectorAll<HTMLElement>(".docx-drawing, .docx-shape, .docx-pict, div, span, article")
+      ).filter((el) => {
+        const style = el.style;
+        const width = parseInt(style.width) || el.offsetWidth;
+        const height = parseInt(style.height) || el.offsetHeight;
+        if (width <= 15 || height <= 15) return false;
+
+        const isClassMatch =
+          el.classList.contains("docx-drawing") ||
+          el.classList.contains("docx-shape") ||
+          el.classList.contains("docx-pict");
+        const isInlineShape = style.width !== "" && style.height !== "";
+
+        if (!isClassMatch && !isInlineShape) return false;
+
+        // Must be top-level (not nested inside another drawing element)
+        let parent = el.parentElement;
+        while (parent && parent !== container) {
+          if (
+            parent.classList.contains("docx-drawing") ||
+            parent.classList.contains("docx-shape") ||
+            parent.classList.contains("docx-pict")
+          ) {
+            return false;
+          }
+          parent = parent.parentElement;
+        }
+
+        return true;
+      });
+
+      // Populate empty shape divs strictly when 1-to-1 matched index exists and container is currently blank
+      allDrawingEls.forEach((domEl, idx) => {
+        const info = shapeInfos[idx];
+        if (!info) return; // NO BLIND FALLBACK TO shapeInfos[0]!
+
+        // Only skip if domEl contains REAL rendered media (an img with valid src, an svg with vector nodes, or a canvas)
+        const validImgs = Array.from(domEl.querySelectorAll("img")).filter((i) => i.src && i.src.length > 50);
+        const validSvgs = Array.from(domEl.querySelectorAll("svg")).filter((s) => s.querySelectorAll("path, rect, circle, line, polygon, polyline, text, image").length > 0);
+        const validCanvases = Array.from(domEl.querySelectorAll("canvas"));
+
+        const hasRenderedContent = validImgs.length > 0 || validSvgs.length > 0 || validCanvases.length > 0;
+        if (hasRenderedContent) return;
+
+        // If an empty SVG placeholder exists inside domEl, clean it out before populating
+        const emptySvgs = Array.from(domEl.querySelectorAll("svg")).filter((s) => s.querySelectorAll("path, rect, circle, line, polygon, polyline, text, image").length === 0);
+        emptySvgs.forEach((s) => s.remove());
+
+        // Otherwise, docx-preview left this shape container blank. Render the shape!
+        if (info.imgDataUrl) {
+          const img = document.createElement("img");
+          img.src = info.imgDataUrl;
+          img.style.width = "100%";
+          img.style.height = "100%";
+          img.style.objectFit = "contain";
+          img.style.display = "block";
+          domEl.appendChild(img);
+        } else {
+          if (info.bg) domEl.style.background = info.bg;
+          if (info.border) domEl.style.border = info.border;
+          domEl.style.borderRadius = "4px";
+          domEl.style.padding = "6px";
+          domEl.style.boxSizing = "border-box";
+          domEl.style.display = "inline-flex";
+          domEl.style.alignItems = "center";
+          domEl.style.justifyContent = "center";
+          domEl.style.color = "#000000";
+          domEl.style.fontSize = "12px";
+
+          if (info.text && !domEl.textContent?.trim()) {
+            domEl.textContent = info.text;
+          }
+        }
+      });
+
+    } catch (err) {
+      console.warn("Shape XML extraction notice:", err);
+    }
+  };
+
   const handleConvert = async () => {
     if (!file) return;
     setConverting(true);
-    setProgressMsg("Preparing rendering targets...");
+    setProgressMsg("Checking conversion options...");
 
-    // Create a standard block element in normal page flow (at the bottom of the body)
+    // 1. Attempt High-Fidelity Server API Conversion
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      setProgressMsg("Processing document via High-Fidelity Vector Engine...");
+      const apiResponse = await fetch("/api/convert-doc", {
+        method: "POST",
+        body: formData,
+      });
+
+      const contentType = apiResponse.headers.get("content-type");
+      if (apiResponse.ok && contentType && contentType.includes("application/pdf")) {
+        const pdfBlob = await apiResponse.blob();
+        const url = URL.createObjectURL(pdfBlob);
+        setOutputBlob(pdfBlob);
+        setOutputUrl(url);
+        setConverting(false);
+        setProgressMsg("");
+        return;
+      }
+    } catch (apiErr) {
+      console.warn("Server API conversion route notice:", apiErr);
+    }
+
+    // 2. High-Precision Client-Side Fallback Engine
+    setProgressMsg("Preparing local client rendering targets...");
+
+    // Hidden off-screen render target. NOTE: no forced width here — the page
+    // is sized naturally from the document's own page dimensions below, so
+    // Letter-sized docs aren't squeezed into an assumed A4 frame.
     const hiddenContainer = document.createElement("div");
     hiddenContainer.id = "docx-render-container";
-    hiddenContainer.style.width = "794px"; // Standard A4 layout width in pixels
+    hiddenContainer.style.position = "fixed";
+    hiddenContainer.style.left = "0px";
+    hiddenContainer.style.top = "0px";
+    hiddenContainer.style.zIndex = "-9999";
+    hiddenContainer.style.pointerEvents = "none";
     hiddenContainer.style.background = "#FFFFFF";
     hiddenContainer.style.color = "#000000";
-    hiddenContainer.style.margin = "0 auto";
-    hiddenContainer.style.padding = "0px"; // Zero padding to preserve docx native spacing
+    hiddenContainer.style.margin = "0";
+    hiddenContainer.style.padding = "0";
+    hiddenContainer.style.boxSizing = "border-box";
     document.body.appendChild(hiddenContainer);
 
-    // Save native String.fromCodePoint function reference to restore later
     const originalFromCodePoint = String.fromCodePoint;
 
     try {
@@ -115,6 +499,40 @@ export default function DocxPdf() {
         useBase64URL: true
       });
 
+      setProgressMsg("Loading document image assets...");
+      await waitForAllImagesToLoad(hiddenContainer);
+
+      setProgressMsg("Converting vector shapes & chart elements...");
+      await convertSvgNodesToImages(hiddenContainer);
+
+      setProgressMsg("Extracting shape graphics & text boxes...");
+      await fixEmptyShapeContainers(hiddenContainer, arrayBuffer);
+
+      // Let layout/fonts settle before we measure or screenshot anything.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      // Read the ACTUAL page size docx-preview computed from the document's
+      // own <w:pgSz> (Letter, A4, Legal, custom...) instead of assuming A4.
+      // Forcing everything into 210mm was distorting/reflowing text for any
+      // doc that wasn't authored as A4 (e.g. the very common US Letter).
+      const firstPage = hiddenContainer.querySelector("section.docx") as HTMLElement | null;
+      const pageRectPx = firstPage
+        ? firstPage.getBoundingClientRect()
+        : ({ width: 794, height: 1123 } as DOMRect); // fallback: A4 @ 96dpi
+      const PX_TO_MM = 25.4 / 96;
+      const pageWidthMm = pageRectPx.width * PX_TO_MM;
+      const pageHeightMm = pageRectPx.height * PX_TO_MM;
+
+      // Lock container & wrapper width to exact page width to eliminate extra screen margins
+      const measuredWidthPx = Math.ceil(pageRectPx.width);
+      hiddenContainer.style.width = `${measuredWidthPx}px`;
+      const wrapperEl = hiddenContainer.querySelector(".docx-wrapper") as HTMLElement | null;
+      if (wrapperEl) {
+        wrapperEl.style.width = `${measuredWidthPx}px`;
+        wrapperEl.style.margin = "0";
+        wrapperEl.style.padding = "0";
+      }
+
       // Convert any rendered <canvas> elements (VML drawings/shapes) into visible <img> tags
       const canvases = Array.from(hiddenContainer.querySelectorAll("canvas"));
       canvases.forEach((canvas) => {
@@ -122,76 +540,112 @@ export default function DocxPdf() {
           const dataUrl = canvas.toDataURL("image/png");
           const img = document.createElement("img");
           img.src = dataUrl;
-          img.style.maxWidth = "100%";
-          img.style.display = "block";
-          img.style.margin = "10px auto";
+          if (canvas.style.width) img.style.width = canvas.style.width;
+          if (canvas.style.height) img.style.height = canvas.style.height;
+          img.style.display = canvas.style.display || "inline-block";
           canvas.parentNode?.replaceChild(img, canvas);
         } catch (e) {
           console.warn("Canvas conversion notice:", e);
         }
       });
 
-      // Inject CSS image rules to ensure all images & shapes are visible
+      // Break the PDF exactly at each rendered docx page
+      const pages = Array.from(hiddenContainer.querySelectorAll("section.docx")) as HTMLElement[];
+      pages.forEach((page, idx) => {
+        (page.style as any).breakBefore = idx === 0 ? "avoid" : "page";
+        (page.style as any).breakInside = "avoid";
+        page.style.margin = "0";
+        page.style.boxShadow = "none";
+      });
+
       const styleElement = document.createElement("style");
       styleElement.innerHTML = `
+        #docx-render-container {
+          font-family: inherit;
+          color: #000000 !important;
+          background: #ffffff !important;
+          text-align: left !important;
+        }
+        #docx-render-container .docx-wrapper {
+          background: #ffffff !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          text-align: left !important;
+        }
+        #docx-render-container section.docx {
+          box-sizing: border-box !important;
+          box-shadow: none !important;
+          background: #ffffff !important;
+          color: #000000 !important;
+          margin: 0 !important;
+        }
         #docx-render-container img,
         #docx-render-container svg image {
           max-width: 100% !important;
-          height: auto !important;
-          display: block !important;
-          margin: 10px auto !important;
           visibility: visible !important;
           opacity: 1 !important;
         }
-        #docx-render-container .docx-wrapper {
-          background: transparent !important;
-          padding: 0 !important;
-          margin: 0 !important;
+        #docx-render-container table {
+          border-collapse: collapse !important;
         }
-        #docx-render-container section.docx {
-          box-shadow: none !important;
-          margin: 0 !important;
+        #docx-render-container p {
+          word-break: break-word;
         }
       `;
       hiddenContainer.appendChild(styleElement);
 
-      // Extract all <img> tags and ensure complete loading
-      const images = Array.from(hiddenContainer.querySelectorAll("img"));
-      await Promise.all(
-        images.map(async (img) => {
+      // --- Resolve every image reference to an inline data: URL and wait
+      // for it to fully decode before screenshotting. This now covers BOTH
+      // normal <img> tags AND <image> elements inside inline <svg> nodes.
+      // docx-preview renders shapes/textboxes/certain pictures as SVG
+      // <image href="blob:..."> when `experimental: true` is set — the
+      // previous code only ever looked at <img>, which is exactly why some
+      // pictures were silently missing from the final PDF.
+      const imgElements = Array.from(hiddenContainer.querySelectorAll("img"));
+      const svgImageElements = Array.from(
+        hiddenContainer.querySelectorAll("svg image")
+      ) as unknown as SVGImageElement[];
+
+      await Promise.all([
+        ...imgElements.map(async (img) => {
           try {
-            img.style.maxWidth = "100%";
-            img.style.height = "auto";
-            img.style.display = "block";
             img.style.visibility = "visible";
             img.style.opacity = "1";
 
-            if (!img.complete) {
+            if (img.src && img.src.startsWith("blob:")) {
+              img.src = await blobToDataUrl(img.src);
+            }
+
+            if ((img as any).decode) {
+              await (img as any).decode().catch(() => {});
+            } else if (!img.complete) {
               await new Promise((resolve) => {
                 img.onload = resolve;
                 img.onerror = resolve;
-                setTimeout(resolve, 500);
-              });
-            }
-            if (img.src && img.src.startsWith("blob:")) {
-              const response = await fetch(img.src);
-              const blob = await response.blob();
-              await new Promise<void>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  if (typeof reader.result === "string") {
-                    img.src = reader.result;
-                  }
-                  resolve();
-                };
-                reader.readAsDataURL(blob);
+                setTimeout(resolve, 3000);
               });
             }
           } catch (e) {
             console.warn("Image processing notice:", e);
           }
-        })
-      );
+        }),
+        ...svgImageElements.map(async (svgImg) => {
+          try {
+            const href = svgImg.getAttribute("href") || svgImg.getAttribute("xlink:href");
+            if (href && href.startsWith("blob:")) {
+              const dataUrl = await blobToDataUrl(href);
+              svgImg.setAttribute("href", dataUrl);
+              svgImg.setAttributeNS("http://www.w3.org/1999/xlink", "href", dataUrl);
+            }
+            await new Promise((resolve) => {
+              svgImg.addEventListener("load", resolve, { once: true });
+              setTimeout(resolve, 3000);
+            });
+          } catch (e) {
+            console.warn("SVG image processing notice:", e);
+          }
+        }),
+      ]);
 
       setProgressMsg("Compiling final vector PDF file...");
 
@@ -207,7 +661,7 @@ export default function DocxPdf() {
       const originalConsoleError = console.error;
       console.error = function (...args: any[]) {
         if (args.length > 0 && typeof args[0] === "string" && args[0].includes("Error loading image")) {
-          return; // Ignore non-fatal html2canvas CSS/font image warning logs
+          return;
         }
         originalConsoleError.apply(console, args);
       };
@@ -218,19 +672,36 @@ export default function DocxPdf() {
         const pdfOptions = {
           margin: 0,
           filename: `${file.name.replace(/\.(docx|doc)$/i, "")}.pdf`,
-          image: { type: "jpeg", quality: 0.95 },
-          html2canvas: { 
-            scale: 2, 
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: {
+            scale: 2,
             useCORS: true,
-            allowTaint: true,
+            allowTaint: false,
             logging: false,
-            imageTimeout: 0
-          }, 
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+            imageTimeout: 15000,
+            scrollX: 0,
+            scrollY: 0,
+            x: 0,
+            y: 0,
+            width: measuredWidthPx,
+            windowWidth: measuredWidthPx,
+          },
+          // Page size now matches the DOCUMENT's own dimensions (Letter, A4,
+          // etc.) rather than being hardcoded to A4 — this was the main
+          // source of the "text alignment" complaint for non-A4 docs.
+          jsPDF: {
+            unit: "mm",
+            format: [pageWidthMm, pageHeightMm],
+            orientation: pageWidthMm > pageHeightMm ? "landscape" : "portrait",
+          },
+          // Break pages at the CSS break-before rules we set on each
+          // section.docx element above, instead of arbitrary pixel slicing.
+          pagebreak: { mode: ["css"] },
         };
 
+        const elementToRender = hiddenContainer.querySelector(".docx-wrapper") || hiddenContainer;
         const pdfBlobOutput = await html2pdfEngine()
-          .from(hiddenContainer)
+          .from(elementToRender)
           .set(pdfOptions)
           .outputPdf("blob");
 
@@ -262,7 +733,7 @@ export default function DocxPdf() {
 
   const handleForwardToSecureShare = async () => {
     if (!outputBlob) return;
-    
+
     const name = `${file?.name?.replace(".docx", "")}.pdf`;
     const type = "application/pdf";
 
@@ -291,7 +762,11 @@ export default function DocxPdf() {
         putRequest.onerror = () => reject(putRequest.error);
       });
 
-      window.location.href = "/upload";
+      if (user) {
+        window.location.href = "/upload";
+      } else {
+        window.location.href = "/login?redirectTo=/upload&reason=forwarded_file";
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to queue file database write locally. Please download the file instead.");
@@ -305,7 +780,7 @@ export default function DocxPdf() {
       <Header />
 
       <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
-        
+
         {/* LEFT AD COLUMN */}
         {!isPremium && (
           <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
@@ -354,7 +829,7 @@ export default function DocxPdf() {
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".docx"
+                accept=".docx,.doc"
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -380,7 +855,7 @@ export default function DocxPdf() {
 
           {file && !outputUrl && !converting && (
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-3xl space-y-6 shadow-sm">
-              
+
               {/* File Info */}
               <div className="flex items-center justify-between pb-4 border-b border-zinc-150 dark:border-zinc-800">
                 <div className="flex items-center gap-3.5 overflow-hidden">
