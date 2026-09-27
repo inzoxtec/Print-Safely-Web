@@ -254,11 +254,11 @@ export default function Header() {
                   </Link>
 
                   <Link
-                    href="/shop/dashboard"
+                    href="/dashboard?tab=shop"
                     onClick={() => setActiveDropdown(null)}
                     className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
                   >
-                    <i className="ri-store-2-line"></i> Shop Dashboard
+                    <i className="ri-store-2-line"></i> Print Shop Profile
                   </Link>
 
                   <button

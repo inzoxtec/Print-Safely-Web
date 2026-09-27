@@ -36,10 +36,16 @@ export default function Sidebar({
 
   const navItems = [
     {
-      name: "Link Manager",
+      name: "My Secure Documents",
       href: "/dashboard",
       icon: "ri-links-line",
-      tooltip: "Link Manager"
+      tooltip: "My Secure Documents"
+    },
+    {
+      name: "Print Shop Profile",
+      href: "/dashboard?tab=shop",
+      icon: "ri-store-2-line",
+      tooltip: "Print Shop Profile"
     },
     {
       name: "Account & Security",

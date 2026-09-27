@@ -3,7 +3,14 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { sendPasswordResetEmail, deleteUser } from "firebase/auth";
+import {
+  sendPasswordResetEmail,
+  deleteUser,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  GoogleAuthProvider,
+  reauthenticateWithPopup,
+} from "firebase/auth";
 import { doc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -24,8 +31,11 @@ export default function AccountPage() {
 
   // Modal / Confirmation States
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
   const [confirmInput, setConfirmInput] = useState("");
   const [deleting, setDeleting] = useState(false);
+
+  const isPasswordUser = user?.providerData.some((p) => p.providerId === "password");
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -54,27 +64,43 @@ export default function AccountPage() {
       return;
     }
 
+    if (isPasswordUser && !passwordInput) {
+      setDeleteError("Please enter your current password to authorize account deletion.");
+      return;
+    }
+
     setDeleting(true);
     setDeleteError("");
 
     try {
       const uid = user.uid;
 
-      // 1. Delete user document in Firestore
+      // 1. Re-authenticate to ensure Firebase Auth deletes the user record permanently
+      if (isPasswordUser) {
+        if (!user.email) throw new Error("User email not found.");
+        const credential = EmailAuthProvider.credential(user.email, passwordInput);
+        await reauthenticateWithCredential(user, credential);
+      } else {
+        // Google auth reauthentication
+        const googleProvider = new GoogleAuthProvider();
+        await reauthenticateWithPopup(user, googleProvider);
+      }
+
+      // 2. Delete user document in Firestore
       try {
         await deleteDoc(doc(db, "users", uid));
       } catch (e) {
         console.warn("Failed to delete user doc:", e);
       }
 
-      // 2. Delete shop document in Firestore if exists
+      // 3. Delete shop document in Firestore if exists
       try {
         await deleteDoc(doc(db, "shops", uid));
       } catch (e) {
         console.warn("Failed to delete shop doc:", e);
       }
 
-      // 3. Delete user documents in Firestore
+      // 4. Delete user documents in Firestore
       try {
         const docsQuery = query(collection(db, "documents"), where("ownerUid", "==", uid));
         const docsSnap = await getDocs(docsQuery);
@@ -85,23 +111,20 @@ export default function AccountPage() {
         console.warn("Failed to delete user documents:", e);
       }
 
-      // 4. Delete Auth user account (with sign out fallback to avoid requires-recent-login errors)
-      try {
-        await deleteUser(user);
-      } catch (authErr: any) {
-        console.warn("deleteUser auth error, signing out user silently:", authErr);
-        await auth.signOut();
-      }
+      // 5. Delete user permanently from Firebase Authentication Console
+      await deleteUser(user);
 
       // Redirect to home page
       router.push("/?account_deleted=true");
     } catch (err: any) {
       console.error("Failed to delete user account:", err);
-      // Fallback sign out if anything else fails
-      try {
-        await auth.signOut();
-      } catch (e) {}
-      router.push("/?account_deleted=true");
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setDeleteError("Incorrect password. Please enter your correct current password.");
+      } else if (err.code === "auth/popup-closed-by-user") {
+        setDeleteError("Google authentication popup was closed. Please try again.");
+      } else {
+        setDeleteError(err.message || "Failed to delete account. Please verify credentials.");
+      }
     } finally {
       setDeleting(false);
     }
@@ -199,6 +222,7 @@ export default function AccountPage() {
               <button
                 onClick={() => {
                   setShowDeleteModal(true);
+                  setPasswordInput("");
                   setConfirmInput("");
                   setDeleteError("");
                 }}
@@ -221,14 +245,29 @@ export default function AccountPage() {
                 <i className="ri-error-warning-line"></i>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Delete Account</h3>
-                <p className="text-xs text-zinc-500">This action is permanent and irreversible.</p>
+                <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Delete Account Permanently</h3>
+                <p className="text-xs text-zinc-500">This will permanently remove your login from Firebase Console.</p>
               </div>
             </div>
 
             <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              Deleting your account will remove your login credentials, any registered print shop listing, and all document links.
+              Deleting your account will erase your login credentials from Firebase Authentication and delete all shop listings and documents.
             </p>
+
+            {isPasswordUser && (
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="Enter your current password"
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-red-500/20"
+                />
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="block text-[11px] font-bold uppercase tracking-wider text-zinc-500">
@@ -261,7 +300,7 @@ export default function AccountPage() {
               <button
                 type="button"
                 onClick={handleDeleteAccount}
-                disabled={deleting || confirmInput.trim().toUpperCase() !== "DELETE"}
+                disabled={deleting || confirmInput.trim().toUpperCase() !== "DELETE" || (isPasswordUser && !passwordInput)}
                 className="px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow transition flex items-center gap-2 cursor-pointer"
               >
                 {deleting ? (

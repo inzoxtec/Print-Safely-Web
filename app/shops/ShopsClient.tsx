@@ -8,6 +8,9 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import Header from "@/app/components/Header";
 import Footer from "@/app/components/Footer";
+import { generateShopSlug } from "@/lib/slug";
+
+export { generateShopSlug };
 
 export interface ShopItem {
   id: string;
@@ -15,6 +18,7 @@ export interface ShopItem {
   ownerName: string;
   ownerEmail: string;
   shopName: string;
+  slug?: string;
   address: string;
   city: string;
   zipCode: string;
@@ -65,14 +69,17 @@ export default function ShopsClient() {
 
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
+          const shopName = data.shopName || "Print Shop";
+          const city = data.city || "";
           fetchedShops.push({
             id: docSnap.id,
             ownerId: data.ownerId || docSnap.id,
             ownerName: data.ownerName || "",
             ownerEmail: data.ownerEmail || "",
-            shopName: data.shopName || "Print Shop",
+            shopName,
+            slug: data.slug || generateShopSlug(shopName, city),
             address: data.address || "",
-            city: data.city || "",
+            city,
             zipCode: data.zipCode || "",
             googleMapsUrl: data.googleMapsUrl || "",
             phone: data.phone || "",
@@ -307,8 +314,10 @@ export default function ShopsClient() {
                                   <i className="ri-checkbox-circle-line"></i> PrintSafely Partner
                                 </span>
                               </div>
-                              <h3 className="text-lg font-bold text-zinc-900 dark:text-white leading-snug">
-                                {shop.shopName}
+                              <h3 className="text-lg font-bold text-zinc-900 dark:text-white leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition">
+                                <Link href={`/shops/${shop.slug || shop.id}`}>
+                                  {shop.shopName}
+                                </Link>
                               </h3>
                             </div>
 
@@ -359,16 +368,24 @@ export default function ShopsClient() {
                           )}
                         </div>
 
-                        {/* Action Button: Get Directions */}
-                        <div className="pt-4 border-t border-zinc-150 dark:border-zinc-800">
+                        {/* Action Buttons: View Details & Get Directions */}
+                        <div className="pt-4 border-t border-zinc-150 dark:border-zinc-800 flex items-center gap-2">
+                          <Link
+                            href={`/shops/${shop.slug || shop.id}`}
+                            className="flex-1 py-2.5 px-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white text-xs font-bold rounded-xl border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-1.5"
+                          >
+                            <i className="ri-store-2-line"></i>
+                            <span>View Details</span>
+                          </Link>
+
                           {shop.googleMapsUrl ? (
                             <a
                               href={shop.googleMapsUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-2 cursor-pointer"
+                              className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
                             >
-                              <i className="ri-direction-line text-base"></i>
+                              <i className="ri-direction-line"></i>
                               <span>Get Directions</span>
                             </a>
                           ) : (
@@ -378,10 +395,10 @@ export default function ShopsClient() {
                               )}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="w-full py-2.5 px-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white text-xs font-bold rounded-xl border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
+                              className="flex-1 py-2.5 px-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow transition flex items-center justify-center gap-1.5 cursor-pointer"
                             >
-                              <i className="ri-map-pin-line text-base"></i>
-                              <span>View on Maps</span>
+                              <i className="ri-map-pin-line"></i>
+                              <span>Directions</span>
                             </a>
                           )}
                         </div>
@@ -502,11 +519,11 @@ export default function ShopsClient() {
                   </p>
                   <div className="pt-2">
                     <Link
-                      href="/shop/dashboard"
+                      href="/dashboard?tab=shop"
                       className="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-blue-900 font-bold text-xs rounded-xl hover:bg-blue-50 transition shadow"
                     >
                       <i className="ri-dashboard-line"></i>
-                      <span>Manage My Shop Dashboard</span>
+                      <span>Manage My Shop Profile</span>
                     </Link>
                   </div>
                 </>

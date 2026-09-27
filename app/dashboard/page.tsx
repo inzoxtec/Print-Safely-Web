@@ -1,9 +1,9 @@
 // app/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 
@@ -11,6 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 import Sidebar from "./components/Sidebar";
 import Header from "./components/Header";
 import LinkManager from "./components/LinkManager";
+import ShopManager from "./components/ShopManager";
 
 interface LinkItem {
   docId: string;
@@ -27,9 +28,12 @@ interface LinkItem {
   pinCode?: string | null;
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const activeTab = searchParams.get("tab") === "shop" ? "shop" : "links";
 
   // Sidebar Layout States
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -37,6 +41,7 @@ export default function DashboardPage() {
 
   // Links Data
   const [links, setLinks] = useState<LinkItem[]>([]);
+  const [hasShop, setHasShop] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -45,6 +50,17 @@ export default function DashboardPage() {
       router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    const checkShop = async () => {
+      try {
+        const snap = await getDoc(doc(db, "shops", user.uid));
+        setHasShop(snap.exists());
+      } catch (e) {}
+    };
+    checkShop();
+  }, [user]);
 
   const fetchUserLinks = async () => {
     if (!user) return;
@@ -80,14 +96,14 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    if (user) {
+    if (user && activeTab === "links") {
       fetchUserLinks();
     }
-  }, [user]);
+  }, [user, activeTab]);
 
-  if (authLoading || (loading && links.length === 0)) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-955">
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
         <div className="animate-spin h-10 w-10 text-blue-600 dark:text-blue-500 rounded-full border-4 border-t-transparent" />
       </div>
     );
@@ -110,27 +126,68 @@ export default function DashboardPage() {
         
         {/* Toolbar Header */}
         <Header 
-          title="Link Manager Panel"
+          title={activeTab === "shop" ? "Print Shop Profile" : "Link Manager Panel"}
           onMenuClick={() => setIsSidebarOpen(true)}
         />
 
         {/* Dashboard Main Workspace */}
-        <div className="flex-1 p-6 md:p-8 overflow-auto bg-zinc-50 dark:bg-zinc-950">
+        <div className="flex-1 p-6 md:p-8 overflow-auto bg-zinc-50 dark:bg-zinc-950 space-y-6">
+          {/* Top Tab Switcher */}
+          <div className="flex items-center gap-2 bg-zinc-200/60 dark:bg-zinc-900/60 p-1 rounded-2xl w-fit border border-zinc-200 dark:border-zinc-800 text-xs font-bold">
+            <button
+              onClick={() => router.push("/dashboard?tab=links")}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === "links"
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 dark:text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+              }`}
+            >
+              <i className="ri-links-line text-sm"></i> My Secure Documents
+            </button>
+            <button
+              onClick={() => router.push("/dashboard?tab=shop")}
+              className={`px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === "shop"
+                  ? "bg-white dark:bg-zinc-950 text-blue-600 dark:text-white shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+              }`}
+            >
+              <i className="ri-store-2-line text-sm"></i>
+              <span>{hasShop ? "My Print Shop Profile" : "+ Register Print Shop"}</span>
+            </button>
+          </div>
+
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/25 text-red-600 dark:text-red-400 rounded-xl text-xs">
+            <div className="p-4 bg-red-500/10 border border-red-500/25 text-red-600 dark:text-red-400 rounded-xl text-xs">
               {error}
             </div>
           )}
 
-          <LinkManager 
-            links={links} 
-            setLinks={setLinks} 
-            refreshList={fetchUserLinks} 
-          />
+          {activeTab === "links" ? (
+            <LinkManager 
+              links={links} 
+              setLinks={setLinks} 
+              refreshList={fetchUserLinks} 
+            />
+          ) : (
+            <ShopManager />
+          )}
         </div>
 
       </div>
 
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="animate-spin h-10 w-10 text-blue-600 rounded-full border-4 border-t-transparent" />
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }
