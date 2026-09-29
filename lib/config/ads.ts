@@ -12,5 +12,5 @@ export const ADS_CONFIG = {
     inArticle: process.env.NEXT_PUBLIC_ADSENSE_SLOT_ARTICLE || "1234567890",
   },
   // Set to true if using official test publisher ID
-  isTestMode: false,
+  isTestMode: true,
 };
