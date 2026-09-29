@@ -8,6 +8,7 @@ import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { generateShopSlug } from "@/lib/slug";
 
 function SignupContent() {
   const { user, loginWithGoogle } = useAuth();
@@ -69,14 +70,17 @@ function SignupContent() {
 
       // Create or Update Shop Profile
       const shopRef = doc(db, "shops", uid);
+      const effectiveShopName = shopName || `${ownerName}'s Print Shop`;
+      const effectiveCity = city || "";
       await setDoc(shopRef, {
         id: uid,
         ownerId: uid,
         ownerName: ownerName,
         ownerEmail: user.email || "",
-        shopName: shopName || `${ownerName}'s Print Shop`,
+        shopName: effectiveShopName,
+        slug: generateShopSlug(effectiveShopName, effectiveCity),
         address: address || "",
-        city: city || "",
+        city: effectiveCity,
         zipCode: zipCode || "",
         googleMapsUrl: googleMapsUrl || "",
         phone: "",
@@ -132,14 +136,17 @@ function SignupContent() {
 
       if (accountType === "shop_owner") {
         const shopRef = doc(db, "shops", uid);
+        const effectiveShopName = shopName || `${name}'s Print Shop`;
+        const effectiveCity = city || "";
         await setDoc(shopRef, {
           id: uid,
           ownerId: uid,
           ownerName: name,
           ownerEmail: email,
-          shopName: shopName || `${name}'s Print Shop`,
+          shopName: effectiveShopName,
+          slug: generateShopSlug(effectiveShopName, effectiveCity),
           address: address || "",
-          city: city || "",
+          city: effectiveCity,
           zipCode: zipCode || "",
           googleMapsUrl: googleMapsUrl || "",
           phone: "",
