@@ -11,6 +11,7 @@ import Footer from "@/app/components/Footer";
 import ToolSeoSection from "@/app/components/ToolSeoSection";
 import ToolSeoSchema from "@/app/components/ToolSeoSchema";
 import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
+import ToolAdSidebar from "@/app/components/ToolAdSidebar";
 
 interface PageThumbnail {
   num: number;
@@ -319,22 +320,8 @@ export default function SplitPdf() {
 
       <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
         
-        {/* LEFT AD COLUMN */}
-        {!isPremium && (
-          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-550 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
-                <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
-                <p className="font-bold">Upgrade to Premium</p>
-                <p className="text-[12px] leading-relaxed">Remove ads and upload up to 20 documents simultaneously.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  View Plans &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
+        {/* LEFT AD / RELATED TOOLS COLUMN (Desktop only) */}
+        <ToolAdSidebar />
 
         {/* CENTER MAIN WORKSPACE */}
         <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">

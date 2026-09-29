@@ -4,6 +4,7 @@ import { Outfit } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import NextTopLoader from "nextjs-toploader";
+import GoogleAdScript from "@/app/components/GoogleAdScript";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -53,6 +54,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-300">
         <NextTopLoader color="#3b82f6" height={3} showSpinner={false} />
         <AuthProvider>
+          <GoogleAdScript />
           {children}
         </AuthProvider>
       </body>
