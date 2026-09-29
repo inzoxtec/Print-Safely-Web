@@ -311,7 +311,7 @@ export default function ShopsClient() {
                                   </span>
                                 )}
                                 <span className="bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                                  <i className="ri-checkbox-circle-line"></i> PrintSafely Partner
+                                  <i className="ri-checkbox-circle-line"></i> PrintSafely
                                 </span>
                               </div>
                               <h3 className="text-lg font-bold text-zinc-900 dark:text-white leading-snug hover:text-blue-600 dark:hover:text-blue-400 transition">
@@ -510,9 +510,9 @@ export default function ShopsClient() {
               
               {user && shops.some((s) => s.ownerId === user.uid) ? (
                 <>
-                  <h3 className="text-xl font-bold flex items-center gap-2">
+                  <h3 className="mt-4 text-xl font-bold flex items-center gap-2">
                     <i className="ri-checkbox-circle-fill text-emerald-400"></i>
-                    You Are a PrintSafely Partner
+                    You are registered with SafelyPrint
                   </h3>
                   <p className="text-xs text-blue-100 max-w-xl leading-relaxed">
                     Manage your print shop profile, operating hours, directions link, and custom printing services from your dashboard.
@@ -529,7 +529,7 @@ export default function ShopsClient() {
                 </>
               ) : user ? (
                 <>
-                  <h3 className="text-xl font-bold">Register Your Print Shop ({user.email})</h3>
+                  <h3 className="mt-4 text-xl font-bold">Register Your Print Shop ({user.email})</h3>
                   <p className="text-xs text-blue-100 max-w-xl leading-relaxed">
                     Register your physical print shop under your existing account to get listed in local customer searches.
                   </p>

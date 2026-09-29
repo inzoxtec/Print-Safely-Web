@@ -190,7 +190,7 @@ export default function ShopManager() {
             <span className="bg-blue-500/20 text-blue-200 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-blue-400/30">
               Print Shop Partner Registration
             </span>
-            <h3 className="text-2xl font-bold">Register Your Print Shop Profile</h3>
+            <h3 className="text-2xl font-bold mt-4">Register Your Print Shop Profile</h3>
             <p className="text-xs text-blue-100 max-w-xl leading-relaxed">
               Register your physical shop under your current account ({user?.email}) to get listed in local customer searches and receive secure walk-in customers.
             </p>

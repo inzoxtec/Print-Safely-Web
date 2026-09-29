@@ -3,6 +3,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 
 interface ToolLink {
@@ -19,11 +21,28 @@ interface Category {
 
 export default function Header() {
   const { user, logout } = useAuth();
+  const [hasShop, setHasShop] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      setHasShop(false);
+      return;
+    }
+    const checkShop = async () => {
+      try {
+        const snap = await getDoc(doc(db, "shops", user.uid));
+        setHasShop(snap.exists());
+      } catch (err) {
+        setHasShop(false);
+      }
+    };
+    checkShop();
+  }, [user]);
 
   // 1. Initialize Theme on Mount
   useEffect(() => {
@@ -149,7 +168,6 @@ export default function Header() {
               href="/shops" 
               className="text-sm font-semibold px-3 py-2 rounded-lg text-zinc-600 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400 transition flex items-center gap-1.5"
             >
-              <i className="ri-store-2-line text-blue-600 dark:text-blue-400"></i>
               <span>Find Print Shops</span>
             </Link>
 
@@ -253,13 +271,15 @@ export default function Header() {
                     <i className="ri-dashboard-line"></i> Dashboard
                   </Link>
 
-                  <Link
-                    href="/dashboard?tab=shop"
-                    onClick={() => setActiveDropdown(null)}
-                    className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
-                  >
-                    <i className="ri-store-2-line"></i> Print Shop Profile
-                  </Link>
+                  {hasShop && (
+                    <Link
+                      href="/dashboard?tab=shop"
+                      onClick={() => setActiveDropdown(null)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-xs font-bold rounded-xl text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-950/40 transition"
+                    >
+                      <i className="ri-store-2-line"></i> Print Shop Profile
+                    </Link>
+                  )}
 
                   <button
                     onClick={() => {

@@ -9,6 +9,7 @@ import Link from "next/link";
 
 interface SidebarProps {
   userEmail: string | null;
+  hasShop?: boolean;
   isCollapsed: boolean;
   setIsCollapsed: (val: boolean) => void;
   isOpen: boolean; // Mobile Drawer Open
@@ -17,6 +18,7 @@ interface SidebarProps {
 
 export default function Sidebar({
   userEmail,
+  hasShop = false,
   isCollapsed,
   setIsCollapsed,
   isOpen,
@@ -42,10 +44,10 @@ export default function Sidebar({
       tooltip: "My Secure Documents"
     },
     {
-      name: "Print Shop Profile",
+      name: hasShop ? "My Print Shop Profile" : "+ Register Print Shop",
       href: "/dashboard?tab=shop",
       icon: "ri-store-2-line",
-      tooltip: "Print Shop Profile"
+      tooltip: hasShop ? "My Print Shop Profile" : "Register Print Shop"
     },
     {
       name: "Account & Security",

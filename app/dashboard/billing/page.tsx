@@ -100,7 +100,7 @@ export default function BillingPage() {
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/50 text-zinc-700 dark:text-zinc-300">
                   {invoices.map((inv) => (
                     <tr key={inv.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-950/30 transition-colors">
-                      <td className="px-6 py-4 font-mono font-bold text-zinc-900 dark:text-zinc-350">{inv.id}</td>
+                      <td className="px-6 py-4 font-bold">{inv.id}</td>
                       <td className="px-6 py-4 text-zinc-500 dark:text-zinc-400">{inv.date}</td>
                       <td className="px-6 py-4 font-semibold">{inv.type}</td>
                       <td className="px-6 py-4 text-zinc-500">{inv.method}</td>
