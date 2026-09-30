@@ -6,9 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import Header from "@/app/components/Header";
-import Footer from "@/app/components/Footer";
-import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
+import ToolLayout from "@/app/components/ToolLayout";
 
 export default function ProtectPdf() {
   const { user } = useAuth();
@@ -148,41 +146,14 @@ export default function ProtectPdf() {
   };
 
   return (
-    <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
-      !isPremium ? "pb-16 lg:pb-0" : ""
-    }`}>
-      <Header />
-
-      <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
-        
-        {/* LEFT AD COLUMN */}
-        {!isPremium && (
-          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-555 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
-                <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
-                <p className="font-bold">Upgrade to Premium</p>
-                <p className="text-[12px] leading-relaxed">Remove ads and upload up to 20 documents simultaneously.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  View Plans &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-
-        {/* CENTER MAIN WORKSPACE */}
-        <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
-          <BreadcrumbSchema
-            items={[
+    <ToolLayout
+      breadcrumbs={[
               { name: "Home", url: "https://printsafely.app" },
               { name: "Tools", url: "https://printsafely.app#tools-catalog" },
               { name: "Protect PDF", url: "https://printsafely.app/tools/protect" },
             ]}
-          />
-
-          <div className="space-y-2">
+    >
+<div className="space-y-2">
             <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
               <i className="ri-lock-password-line text-red-600 dark:text-red-500"></i> Protect PDF (Lock Password)
             </h1>
@@ -325,42 +296,6 @@ export default function ProtectPdf() {
               </button>
             </div>
           )}
-        </main>
-
-        {/* RIGHT AD COLUMN */}
-        {!isPremium && (
-          <aside className="flex md:hidden lg:flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-555 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
-                <i className="ri-file-zip-line text-blue-500 text-xl"></i>
-                <p className="font-bold">Advanced PDF Tools</p>
-                <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  Learn More &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-      </div>
-
-      {/* MOBILE BOTTOM BANNER */}
-      {!isPremium && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center z-45 transition-colors shadow-lg">
-          <div className="w-full max-w-lg mx-auto flex items-center justify-between px-4 h-full text-xs text-zinc-700 dark:text-zinc-300">
-            <div className="flex items-center gap-2">
-              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-550">AD</span>
-              <p className="font-semibold text-[12px] text-zinc-555 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
-            </div>
-            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
-              Upgrade
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <Footer />
-    </div>
+    </ToolLayout>
   );
 }

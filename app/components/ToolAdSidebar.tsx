@@ -34,18 +34,26 @@ const ALL_PDF_TOOLS: ToolLinkItem[] = [
   { name: "Redact PDF", href: "/tools/redact-pdf", icon: "ri-eye-off-line", desc: "Blackout sensitive data" },
 ];
 
-export default function ToolAdSidebar() {
+interface ToolAdSidebarProps {
+  position?: "left" | "right";
+}
+
+export default function ToolAdSidebar({ position = "left" }: ToolAdSidebarProps) {
   const { isPremium } = useAuth();
   const pathname = usePathname();
 
-  // Filter out the currently active tool from the related tools list
-  const relatedTools = ALL_PDF_TOOLS.filter((tool) => tool.href !== pathname).slice(0, 5);
+  // Filter out the currently active tool
+  const relatedTools = ALL_PDF_TOOLS.filter((tool) => tool.href !== pathname);
+  const leftTools = relatedTools.slice(0, 5);
+  const rightTools = relatedTools.slice(5, 10);
+
+  const activeToolsList = position === "left" ? leftTools : rightTools;
 
   return (
-    <aside className="hidden md:flex w-52 flex-shrink-0 p-4 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
+    <aside className="hidden lg:flex w-52 flex-shrink-0 p-4 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
       <div className="sticky top-20 w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 space-y-4 shadow-xs">
         
-        {/* IF FREE USER: SHOW GOOGLE ADSENSE UNIT + UPGRADE LINK */}
+        {/* IF FREE USER: SHOW GOOGLE ADSENSE UNIT + CALLOUT BANNER */}
         {!isPremium ? (
           <div className="space-y-4 text-center">
             <span className="text-[9px] uppercase font-extrabold text-zinc-400 dark:text-zinc-500 tracking-wider">
@@ -53,21 +61,25 @@ export default function ToolAdSidebar() {
             </span>
 
             {/* Google AdSense Unit */}
-            <GoogleAdUnit format="vertical" className="min-h-[250px]" />
+            <GoogleAdUnit format="vertical" className="min-h-[220px]" />
 
             <div className="border-t border-zinc-150 dark:border-zinc-800 pt-3 space-y-2">
               <div className="h-8 w-8 bg-amber-500/10 text-amber-500 rounded-xl flex items-center justify-center mx-auto text-base">
-                <i className="ri-vip-crown-line"></i>
+                <i className={position === "left" ? "ri-vip-crown-line" : "ri-sparkling-line"}></i>
               </div>
-              <p className="font-extrabold text-xs text-zinc-900 dark:text-white">Upgrade to Premium</p>
+              <p className="font-extrabold text-xs text-zinc-900 dark:text-white">
+                {position === "left" ? "Upgrade to Premium" : "SafelyPrint Pro"}
+              </p>
               <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                Enjoy 100% ad-free processing & unlimited document conversions.
+                {position === "left"
+                  ? "Enjoy 100% ad-free processing & unlimited document conversions."
+                  : "Convert, split, sign & print documents with 100% local privacy."}
               </p>
               <Link
                 href="/pricing"
                 className="inline-block w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-xl shadow-xs transition"
               >
-                View Plans &rarr;
+                {position === "left" ? "View Plans \u2192" : "Learn More \u2192"}
               </Link>
             </div>
           </div>
@@ -76,15 +88,15 @@ export default function ToolAdSidebar() {
           <div className="space-y-3">
             <div className="flex items-center gap-1.5 text-xs font-extrabold text-blue-600 dark:text-blue-400 border-b border-zinc-150 dark:border-zinc-800 pb-2.5">
               <i className="ri-sparkling-fill text-amber-500 text-sm"></i>
-              <span>Related PDF Tools</span>
+              <span>{position === "left" ? "Related PDF Tools" : "Quick Actions"}</span>
             </div>
 
             <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-wider">
-              Quick Navigation
+              {position === "left" ? "Quick Navigation" : "More Tools"}
             </p>
 
             <div className="space-y-1">
-              {relatedTools.map((tool) => (
+              {activeToolsList.map((tool) => (
                 <Link
                   key={tool.href}
                   href={tool.href}
