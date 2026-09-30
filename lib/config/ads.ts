@@ -10,5 +10,5 @@ export const ADS_CONFIG = {
     inArticle: process.env.NEXT_PUBLIC_ADSENSE_SLOT_ARTICLE || "1234567890",
   },
   
-  isTestMode: true, // Keep true for local dev, change to false when live
+  isTestMode: false, // Keep true for local dev, change to false when live
 };
