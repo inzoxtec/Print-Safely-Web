@@ -1,15 +1,9 @@
 // app/tools/delete/page.tsx
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import Link from "next/link";
+import React, { useState, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import Header from "@/app/components/Header";
-import Footer from "@/app/components/Footer";
-import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
-import ToolAdSidebar from "@/app/components/ToolAdSidebar";
+import ToolLayout from "@/app/components/ToolLayout";
 
 interface PageThumbnail {
   index: number;
@@ -25,28 +19,6 @@ export default function DeletePdf() {
   const [outputBlob, setOutputBlob] = useState<Blob | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isPremium, setIsPremium] = useState(false);
-
-  // Sync plan status from Firestore
-  useEffect(() => {
-    if (!user) return;
-    const fetchUserPlan = async () => {
-      try {
-        const userRef = doc(db, "users", user.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const activePlans = ["premium", "starter", "pro", "advanced"];
-          if (activePlans.includes(userData.plan)) {
-            setIsPremium(true);
-          }
-        }
-      } catch (err) {
-        console.warn(err);
-      }
-    };
-    fetchUserPlan();
-  }, [user]);
 
   const loadPdfJS = async () => {
     if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
@@ -190,185 +162,136 @@ export default function DeletePdf() {
   };
 
   return (
-    <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
-      !isPremium ? "pb-16 lg:pb-0" : ""
-    }`}>
-      <Header />
-
-      <div className="flex-1 flex-col md:flex-row flex w-full max-w-[100vw] justify-center overflow-hidden">
-        
-        {/* LEFT AD / RELATED TOOLS COLUMN (Desktop only) */}
-        <ToolAdSidebar />
-
-        {/* CENTER MAIN WORKSPACE */}
-        <main className="flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-8">
-          <BreadcrumbSchema
-            items={[
-              { name: "Home", url: "https://printsafely.app" },
-              { name: "Tools", url: "https://printsafely.app#tools-catalog" },
-              { name: "Delete PDF Pages", url: "https://printsafely.app/tools/delete-pdf" },
-            ]}
-          />
-
-          <div className="space-y-2">
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
-              <i className="ri-delete-bin-6-line text-blue-600 dark:text-blue-500"></i> Delete PDF Pages
-            </h1>
-            <p className="text-sm text-zinc-700 dark:text-zinc-400">
-              Select and remove unwanted pages from your PDF file visually in the browser window. Zero upload trace on our servers.
-            </p>
-          </div>
-
-          {!file && (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
-              <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
-                <i className="ri-delete-bin-6-fill"></i>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select PDF to delete pages</p>
-                <p className="text-[14px] text-zinc-405 dark:text-zinc-550 mt-1">Upload a PDF to render visual page deletion tools.</p>
-              </div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept=".pdf,application/pdf"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
-              >
-                Choose PDF File
-              </button>
-            </div>
-          )}
-
-          {loadingPages && (
-            <div className="text-center py-12 space-y-3">
-              <div className="animate-spin h-8 w-8 text-blue-500 border-4 border-t-transparent rounded-full mx-auto" />
-              <p className="text-xs text-zinc-500">Generating page previews...</p>
-            </div>
-          )}
-
-          {pages.length > 0 && !outputUrl && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {pages.map((item, index) => (
-                  <div key={item.index} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 rounded-2xl flex flex-col items-center gap-3 relative shadow-xs group">
-                    <span className="absolute top-2 left-2 bg-zinc-200 dark:bg-zinc-850 text-[10px] font-bold px-2 py-0.5 rounded text-zinc-650 dark:text-zinc-400">
-                      Page {index + 1}
-                    </span>
-                    
-                    <button
-                      onClick={() => deletePage(index)}
-                      className="absolute top-2 right-2 p-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900/60 text-red-650 dark:text-red-400 rounded-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity cursor-pointer shadow-xs"
-                      title="Remove Page"
-                    >
-                      <i className="ri-delete-bin-line text-xs"></i>
-                    </button>
-
-                    <div className="w-full h-32 rounded-lg overflow-hidden border border-zinc-100 dark:border-zinc-800 mt-4 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-                      <img src={item.dataUrl} alt={`Page ${index + 1}`} className="max-h-full max-w-full object-contain" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3.5">
-                <button
-                  onClick={() => {
-                    setFile(null);
-                    setPages([]);
-                  }}
-                  className="px-5 py-2.5 bg-zinc-150 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-855 dark:text-white font-bold rounded-xl text-xs border border-zinc-250 dark:border-zinc-700 transition cursor-pointer"
-                >
-                  Change File
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-1.5"
-                >
-                  {saving ? "Processing..." : "Wipe & Save PDF"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {outputUrl && (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-6 shadow-sm animate-in fade-in duration-300">
-              <div className="flex justify-center text-emerald-500 text-5xl">
-                <i className="ri-checkbox-circle-fill"></i>
-              </div>
-              <div className="space-y-1.5">
-                <h3 className="text-xl font-bold text-zinc-900 dark:text-white">PDF Compiled Successfully!</h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">Your deleted pages are purged. Secure share or download below.</p>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
-                <a
-                  href={outputUrl}
-                  download={`Purged_${file?.name}`}
-                  className="w-full sm:w-auto px-5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <i className="ri-download-2-line"></i> Download PDF
-                </a>
-                <button
-                  onClick={handleForwardToSecureShare}
-                  className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <i className="ri-shield-keyhole-line"></i> 🔒 Secure Share & Print
-                </button>
-              </div>
-              <button
-                onClick={() => {
-                  setOutputUrl(null);
-                  setOutputBlob(null);
-                  setFile(null);
-                  setPages([]);
-                }}
-                className="text-xs font-semibold text-zinc-400 hover:underline cursor-pointer block mx-auto"
-              >
-                Modify Another Document
-              </button>
-            </div>
-          )}
-        </main>
-
-        {/* RIGHT AD COLUMN */}
-        {!isPremium && (
-          <aside className="flex md:hidden lg:flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-550 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-550 dark:text-zinc-400 space-y-2">
-                <i className="ri-file-zip-line text-blue-500 text-xl"></i>
-                <p className="font-bold">Advanced PDF Tools</p>
-                <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  Learn More &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
+    <ToolLayout
+      breadcrumbs={[
+        { name: "Home", url: "https://printsafely.app" },
+        { name: "Tools", url: "https://printsafely.app#tools-catalog" },
+        { name: "Delete PDF Pages", url: "https://printsafely.app/tools/delete-pdf" },
+      ]}
+    >
+      <div className="space-y-2">
+        <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
+          <i className="ri-delete-bin-6-line text-blue-600 dark:text-blue-500"></i> Delete PDF Pages
+        </h1>
+        <p className="text-sm text-zinc-700 dark:text-zinc-400">
+          Select and remove unwanted pages from your PDF file visually in the browser window. Zero upload trace on our servers.
+        </p>
       </div>
 
-      {/* MOBILE BOTTOM BANNER */}
-      {!isPremium && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center z-45 transition-colors shadow-lg">
-          <div className="w-full max-w-lg mx-auto flex items-center justify-between px-4 h-full text-xs text-zinc-700 dark:text-zinc-300">
-            <div className="flex items-center gap-2">
-              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-550">AD</span>
-              <p className="font-semibold text-[12px] text-zinc-550 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
-            </div>
-            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
-              Upgrade
-            </Link>
+      {!file && (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-10 text-center flex flex-col items-center justify-center gap-4 shadow-sm">
+          <div className="h-14 w-14 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-500 rounded-2xl flex items-center justify-center text-2xl">
+            <i className="ri-delete-bin-6-fill"></i>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-zinc-800 dark:text-zinc-200">Select PDF to delete pages</p>
+            <p className="text-[14px] text-zinc-405 dark:text-zinc-550 mt-1">Upload a PDF to render visual page deletion tools.</p>
+          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".pdf,application/pdf"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
+          >
+            Choose PDF File
+          </button>
+        </div>
+      )}
+
+      {loadingPages && (
+        <div className="text-center py-12 space-y-3">
+          <div className="animate-spin h-8 w-8 text-blue-500 border-4 border-t-transparent rounded-full mx-auto" />
+          <p className="text-xs text-zinc-500">Generating page previews...</p>
+        </div>
+      )}
+
+      {pages.length > 0 && !outputUrl && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {pages.map((item, index) => (
+              <div key={item.index} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 rounded-2xl flex flex-col items-center gap-3 relative shadow-xs group">
+                <span className="absolute top-2 left-2 bg-zinc-200 dark:bg-zinc-850 text-[10px] font-bold px-2 py-0.5 rounded text-zinc-650 dark:text-zinc-400">
+                  Page {index + 1}
+                </span>
+                
+                <button
+                  onClick={() => deletePage(index)}
+                  className="absolute top-2 right-2 p-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-950/60 dark:hover:bg-red-900/60 text-red-650 dark:text-red-400 rounded-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity cursor-pointer shadow-xs"
+                  title="Remove Page"
+                >
+                  <i className="ri-delete-bin-line text-xs"></i>
+                </button>
+
+                <div className="w-full h-32 rounded-lg overflow-hidden border border-zinc-100 dark:border-zinc-800 mt-4 flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+                  <img src={item.dataUrl} alt={`Page ${index + 1}`} className="max-h-full max-w-full object-contain" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3.5">
+            <button
+              onClick={() => {
+                setFile(null);
+                setPages([]);
+              }}
+              className="px-5 py-2.5 bg-zinc-150 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-855 dark:text-white font-bold rounded-xl text-xs border border-zinc-250 dark:border-zinc-700 transition cursor-pointer"
+            >
+              Change File
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer flex items-center gap-1.5"
+            >
+              {saving ? "Processing..." : "Wipe & Save PDF"}
+            </button>
           </div>
         </div>
       )}
 
-      <Footer />
-    </div>
+      {outputUrl && (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-8 rounded-3xl text-center space-y-6 shadow-sm animate-in fade-in duration-300">
+          <div className="flex justify-center text-emerald-500 text-5xl">
+            <i className="ri-checkbox-circle-fill"></i>
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-xl font-bold text-zinc-900 dark:text-white">PDF Compiled Successfully!</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">Your deleted pages are purged. Secure share or download below.</p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 max-w-md mx-auto pt-2">
+            <a
+              href={outputUrl}
+              download={`Purged_${file?.name}`}
+              className="w-full sm:w-auto px-5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-white font-bold rounded-xl text-xs border border-zinc-300 dark:border-zinc-700 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <i className="ri-download-2-line"></i> Download PDF
+            </a>
+            <button
+              onClick={handleForwardToSecureShare}
+              className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <i className="ri-shield-keyhole-line"></i> 🔒 Secure Share & Print
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setOutputUrl(null);
+              setOutputBlob(null);
+              setFile(null);
+              setPages([]);
+            }}
+            className="text-xs font-semibold text-zinc-400 hover:underline cursor-pointer block mx-auto"
+          >
+            Modify Another Document
+          </button>
+        </div>
+      )}
+    </ToolLayout>
   );
 }

@@ -6,9 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import Header from "@/app/components/Header";
-import Footer from "@/app/components/Footer";
-import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
+import ToolLayout from "@/app/components/ToolLayout";
 
 type AnnotationTool = "select" | "pen" | "highlight" | "text" | "eraser";
 
@@ -675,47 +673,14 @@ export default function AnnotatePdf() {
   };
 
   return (
-    <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
-      !isPremium ? "pb-16 lg:pb-0" : ""
-    }`}>
-      {!isFullscreen && <Header />}
-
-      <div className="flex-1 flex flex-col md:flex-row w-full max-w-[100vw] justify-center overflow-hidden">
-        
-        {/* LEFT COLUMN: Advertising */}
-        {!isPremium && !isFullscreen && (
-          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-555 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-555 dark:text-zinc-400 space-y-2">
-                <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
-                <p className="font-bold">Upgrade to Premium</p>
-                <p className="text-[12px] leading-relaxed">Remove ads and unlock pro features.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  View Plans &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-
-        {/* CENTER MAIN WORKSPACE */}
-        <main className={`flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-6 flex flex-col items-center justify-start ${
-          isFullscreen 
-            ? "fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 h-screen max-w-full" 
-            : ""
-        }`}>
-          {!isFullscreen && (
-            <BreadcrumbSchema
-              items={[
+    <ToolLayout
+      breadcrumbs={[
                 { name: "Home", url: "https://printsafely.app" },
                 { name: "Tools", url: "https://printsafely.app#tools-catalog" },
                 { name: "Annotate PDF", url: "https://printsafely.app/tools/annotate-pdf" },
               ]}
-            />
-          )}
-
-          <div className="w-full space-y-2 text-left flex items-start justify-between">
+    >
+      <div className="w-full space-y-2 text-left flex items-start justify-between">
             <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
@@ -1164,125 +1129,6 @@ export default function AnnotatePdf() {
               </button>
             </div>
           )}
-        </main>
-
-        {/* RIGHT AD COLUMN (Shown always to preserve spacing layout) */}
-        {!isPremium && !isFullscreen && (
-          <aside className="flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
-                <i className="ri-file-zip-line text-blue-500 text-xl"></i>
-                <p className="font-bold">Advanced PDF Tools</p>
-                <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  Learn More &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-      </div>
-
-      {/* ======================================================== */}
-      {/* POPUP MODAL: ADD COMMENT TEXT ANNOTATION BLOCK            */}
-      {/* ======================================================== */}
-      {isTextModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-150 p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-left animate-in zoom-in-95 duration-150">
-            
-            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
-              <div className="flex items-center gap-2">
-                <i className="ri-chat-new-line text-blue-500"></i>
-                <h3 className="font-black text-zinc-900 dark:text-white text-sm">Add Text Comment Badge</h3>
-              </div>
-              <button onClick={() => { setIsTextModalOpen(false); setPendingTextCoords(null); }} className="text-zinc-405 hover:text-zinc-650 text-lg font-bold leading-none">&times;</button>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 block">Comment Message</label>
-              <input
-                type="text"
-                value={textVal}
-                onChange={(e) => setTextVal(e.target.value)}
-                placeholder="Type your comment..."
-                autoFocus
-                className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-bold text-zinc-900 dark:text-white"
-              />
-            </div>
-
-            {/* Comment Color */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 block">Text Color</label>
-              <div className="flex gap-2">
-                {[
-                  { val: "#000000", label: "Charcoal" },
-                  { val: "#002fa7", label: "Blue" },
-                  { val: "#a00000", label: "Red" },
-                  { val: "#006400", label: "Forest Green" }
-                ].map((color) => (
-                  <button
-                    key={color.val}
-                    onClick={() => setTextColor(color.val)}
-                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-150 dark:bg-zinc-955 dark:hover:bg-zinc-900 border border-zinc-205 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer ${
-                      textColor === color.val ? "ring-2 ring-blue-500/30 text-blue-500 border-blue-400" : "text-zinc-600 dark:text-zinc-400"
-                    }`}
-                  >
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color.val }} />
-                    {color.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Background Style */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-zinc-400 block">Badge Color</label>
-              <div className="flex gap-2 flex-wrap">
-                {[
-                  { val: "transparent", label: "No Background" },
-                  { val: "rgba(254, 240, 138, 0.9)", label: "Sticky Yellow" },
-                  { val: "rgba(191, 219, 254, 0.9)", label: "Ocean Blue" },
-                  { val: "rgba(187, 247, 208, 0.9)", label: "Mint Green" }
-                ].map((color) => (
-                  <button
-                    key={color.val}
-                    onClick={() => setTextBgColor(color.val)}
-                    className={`px-3 py-1 bg-zinc-50 hover:bg-zinc-150 dark:bg-zinc-955 dark:hover:bg-zinc-900 border border-zinc-205 dark:border-zinc-800 rounded-lg text-[10px] font-bold transition cursor-pointer ${
-                      textBgColor === color.val ? "ring-2 ring-blue-500/30 text-blue-500 border-blue-400" : "text-zinc-600 dark:text-zinc-400"
-                    }`}
-                  >
-                    {color.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="border-t border-zinc-200 dark:border-zinc-850 pt-4 flex justify-end gap-3">
-              <button onClick={() => { setIsTextModalOpen(false); setPendingTextCoords(null); }} className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-855 dark:hover:bg-zinc-755 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs cursor-pointer">Cancel</button>
-              <button onClick={handleSaveTextAnnotation} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer">Add Comment</button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* MOBILE BOTTOM BANNER */}
-      {!isPremium && !isFullscreen && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-center z-45 transition-colors shadow-lg">
-          <div className="w-full max-w-lg mx-auto flex items-center justify-between px-4 h-full text-xs text-zinc-700 dark:text-zinc-300">
-            <div className="flex items-center gap-2">
-              <span className="bg-zinc-100 dark:bg-zinc-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded text-zinc-500">AD</span>
-              <p className="font-semibold text-[12px] text-zinc-500 dark:text-zinc-400">Upgrade to remove ads and unlock pro features.</p>
-            </div>
-            <Link href="/pricing" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-755 text-white font-bold rounded-xl text-[12px] transition whitespace-nowrap shadow">
-              Upgrade
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <Footer />
-    </div>
+    </ToolLayout>
   );
 }

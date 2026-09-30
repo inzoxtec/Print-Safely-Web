@@ -6,11 +6,9 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import Header from "@/app/components/Header";
-import Footer from "@/app/components/Footer";
 import ToolSeoSection from "@/app/components/ToolSeoSection";
 import ToolSeoSchema from "@/app/components/ToolSeoSchema";
-import BreadcrumbSchema from "@/app/components/BreadcrumbSchema";
+import ToolLayout from "@/app/components/ToolLayout";
 
 type SignatureMode = "type" | "draw" | "upload";
 
@@ -567,47 +565,14 @@ export default function SignPdf() {
   };
 
   return (
-    <div className={`min-h-screen w-full bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white flex flex-col justify-between transition-colors duration-300 ${
-      !isPremium ? "pb-16 lg:pb-0" : ""
-    }`}>
-      {!isFullscreen && <Header />}
-
-      <div className="flex-1 flex flex-col md:flex-row w-full max-w-[100vw] justify-center overflow-hidden">
-        
-        {/* LEFT COLUMN: Advertising */}
-        {!isPremium && !isFullscreen && (
-          <aside className="hidden md:flex w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
-                <i className="ri-vip-crown-line text-amber-500 text-xl"></i>
-                <p className="font-bold">Upgrade to Premium</p>
-                <p className="text-[12px] leading-relaxed">Remove ads and unlock pro features.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  View Plans &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-
-        {/* CENTER MAIN WORKSPACE */}
-        <main className={`flex-1 max-w-4xl p-6 md:p-8 overflow-auto space-y-6 flex flex-col items-center justify-start ${
-          isFullscreen 
-            ? "fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 h-screen max-w-full" 
-            : ""
-        }`}>
-          {!isFullscreen && (
-            <BreadcrumbSchema
-              items={[
+    <ToolLayout
+      breadcrumbs={[
                 { name: "Home", url: "https://printsafely.app" },
                 { name: "Tools", url: "https://printsafely.app#tools-catalog" },
                 { name: "Sign PDF", url: "https://printsafely.app/tools/sign-pdf" },
               ]}
-            />
-          )}
-
-          <div className="w-full space-y-2 text-left flex items-start justify-between">
+    >
+      <div className="w-full space-y-2 text-left flex items-start justify-between">
             <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h1 className="text-2xl md:text-3xl font-black tracking-tight flex items-center gap-2">
@@ -881,225 +846,6 @@ export default function SignPdf() {
               </button>
             </div>
           )}
-        </main>
-
-        {/* RIGHT AD COLUMN (Shown always to preserve spacing layout) */}
-        {!isPremium && !isFullscreen && (
-          <aside className="flex w-full md:w-44 flex-shrink-0 p-4 dark:border-zinc-800 flex-col items-center justify-start bg-zinc-50/50 dark:bg-zinc-950/20">
-            <div className="sticky top-20 w-full h-[550px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col justify-between items-center p-4">
-              <span className="text-[9px] uppercase font-bold text-zinc-400 dark:text-zinc-500 tracking-wider">Advertisement</span>
-              <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 space-y-2">
-                <i className="ri-file-zip-line text-blue-500 text-xl"></i>
-                <p className="font-bold">Advanced PDF Tools</p>
-                <p className="text-[12px] leading-relaxed">Split, watermark, sign, and convert PDF documents in seconds.</p>
-                <Link href="/pricing" className="text-[12px] text-blue-500 hover:underline block pt-2 font-bold">
-                  Learn More &rarr;
-                </Link>
-              </div>
-            </div>
-          </aside>
-        )}
-      </div>
-
-      {/* ======================================================== */}
-      {/* CENTRAL POPUP MODAL: SIGNATURE DESIGNER WORKSPACE PANEL   */}
-      {/* ======================================================== */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-150 p-4">
-          <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 w-full max-w-xl p-6 shadow-2xl flex flex-col gap-6 text-left animate-in zoom-in-95 duration-150">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-zinc-150 dark:border-zinc-850 pb-3">
-              <div className="flex items-center gap-2">
-                <i className="ri-quill-pen-line text-blue-500 text-lg"></i>
-                <h3 className="font-black text-zinc-900 dark:text-white text-base">Design Your Signature</h3>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-650 dark:text-zinc-500 dark:hover:text-zinc-300 text-lg font-bold leading-none cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            {/* Mode Select Tabs */}
-            <div className="grid grid-cols-3 gap-1 bg-zinc-100 dark:bg-zinc-950 p-1 rounded-xl">
-              {(["type", "draw", "upload"] as SignatureMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setSigMode(mode)}
-                  className={`py-2 text-xs font-bold uppercase rounded-lg transition capitalize cursor-pointer ${
-                    sigMode === mode
-                      ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-
-            {/* Type Option */}
-            {sigMode === "type" && (
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Signature Name</label>
-                  <input
-                    type="text"
-                    value={typedName}
-                    onChange={(e) => setTypedName(e.target.value)}
-                    placeholder="Enter name..."
-                    className="w-full px-3.5 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 text-sm font-bold text-zinc-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Choose Signature Font Style</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-                    {SIGN_FONTS.map((font) => (
-                      <div
-                        key={font.name}
-                        onClick={() => setSelectedFont(font)}
-                        className={`p-3 rounded-xl border cursor-pointer transition text-center flex flex-col justify-center bg-zinc-50 dark:bg-zinc-950 ${
-                          selectedFont.name === font.name
-                            ? "border-blue-500 bg-blue-500/5 ring-1 ring-blue-500/25"
-                            : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300"
-                        }`}
-                      >
-                        <span className="text-[10px] text-zinc-400 uppercase font-mono block text-left mb-1">{font.name}</span>
-                        <p className="text-xl truncate text-zinc-900 dark:text-white" style={{ fontFamily: font.family }}>
-                          {typedName || "Signature"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Draw Option */}
-            {sigMode === "draw" && (
-              <div className="space-y-3.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Draw Signature Ink</label>
-                  <button
-                    onClick={clearCanvas}
-                    className="text-[10px] font-bold text-red-500 hover:underline uppercase tracking-wider cursor-pointer"
-                  >
-                    Clear Slate
-                  </button>
-                </div>
-
-                <div className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl h-44 overflow-hidden relative">
-                  <canvas
-                    ref={drawCanvasRef}
-                    width={500}
-                    height={176}
-                    onMouseDown={startDrawing}
-                    onMouseMove={draw}
-                    onMouseUp={stopDrawing}
-                    onMouseLeave={stopDrawing}
-                    onTouchStart={startDrawing}
-                    onTouchMove={draw}
-                    onTouchEnd={stopDrawing}
-                    className="w-full h-full bg-transparent cursor-crosshair block"
-                  />
-                  <div className="absolute bottom-2.5 left-3 text-[10px] font-bold text-zinc-400 tracking-wide pointer-events-none select-none">
-                    Write signature here using mouse/trackpad
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  {/* Ink color selection */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ink Color:</span>
-                    <div className="flex gap-1.5">
-                      {["#000000", "#002fa7", "#a00000"].map((col) => (
-                        <button
-                          key={col}
-                          onClick={() => setDrawColor(col)}
-                          className={`h-5.5 w-5.5 rounded-full border border-white dark:border-zinc-900 cursor-pointer transition ${
-                            drawColor === col ? "scale-110 ring-2 ring-blue-500/25" : ""
-                          }`}
-                          style={{ backgroundColor: col }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Brush width Selection */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Ink Thickness:</span>
-                    <div className="flex gap-1 bg-zinc-150 dark:bg-zinc-950 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      {[2, 3, 4].map((widthVal) => (
-                        <button
-                          key={widthVal}
-                          onClick={() => setBrushWidth(widthVal)}
-                          className={`h-6 px-2 text-[10px] font-bold rounded cursor-pointer transition ${
-                            brushWidth === widthVal
-                              ? "bg-white dark:bg-zinc-800 text-blue-600 shadow-sm"
-                              : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                          }`}
-                        >
-                          {widthVal}px
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Upload Option */}
-            {sigMode === "upload" && (
-              <div className="space-y-4">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Upload Signature Image file</label>
-                <div
-                  onClick={() => uploadSigInputRef.current?.click()}
-                  className="w-full bg-zinc-50 dark:bg-zinc-950 border-2 border-dashed border-zinc-200 dark:border-zinc-800 hover:border-blue-500 rounded-2xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2"
-                >
-                  <i className="ri-image-add-line text-2xl text-zinc-400"></i>
-                  <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    {uploadedSigUrl ? "Choose another signature image" : "Select PNG / JPEG signature image"}
-                  </span>
-                  <span className="text-[10px] text-zinc-400">(Transparent background recommended)</span>
-                  <input
-                    type="file"
-                    ref={uploadSigInputRef}
-                    accept="image/*"
-                    onChange={handleSignatureUpload}
-                    className="hidden"
-                  />
-                </div>
-
-                {uploadedSigUrl && (
-                  <div className="p-3 bg-zinc-100/50 dark:bg-zinc-950/20 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex justify-center items-center h-28 max-w-sm mx-auto overflow-hidden animate-in fade-in">
-                    <img src={uploadedSigUrl} alt="uploaded signature preview" className="max-h-full max-w-full object-contain" />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Modal Actions */}
-            <div className="flex justify-end gap-3 border-t border-zinc-150 dark:border-zinc-850 pt-4">
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="px-4.5 py-2 bg-zinc-100 hover:bg-zinc-250 dark:bg-zinc-800 dark:hover:bg-zinc-755 text-zinc-850 dark:text-zinc-200 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveSignature}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow transition cursor-pointer"
-              >
-                Insert Signature
-              </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-
       <ToolSeoSection
         title="Sign PDF Online Free - Fill & Sign PDFs Privately"
         subtitle="Create electronic signatures by drawing, typing cursive signatures, or uploading image signatures. 100% client-side privacy with no cloud uploads."
@@ -1134,7 +880,6 @@ export default function SignPdf() {
           { question: "Is an electronic signature created with SafelyPrint legally valid?", answer: "Yes. Electronic signatures added to PDFs are widely accepted for business agreements, receipts, non-disclosure agreements, and general forms." }
         ]}
       />
-      <Footer />
-    </div>
+    </ToolLayout>
   );
 }

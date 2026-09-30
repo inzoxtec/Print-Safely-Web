@@ -5,7 +5,7 @@ import Script from "next/script";
 import { ADS_CONFIG } from "@/lib/config/ads";
 
 export default function GoogleAdScript() {
-  if (!ADS_CONFIG.client) return null;
+  if (!ADS_CONFIG.client || ADS_CONFIG.isTestMode) return null;
 
   return (
     <Script
